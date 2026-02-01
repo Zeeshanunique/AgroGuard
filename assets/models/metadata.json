@@ -1,0 +1,19 @@
+{
+  "model_name": "linkanjarad/mobilenet_v2_1.0_224-plant-disease-identification",
+  "input_size": 224,
+  "num_classes": 38,
+  "mean": [
+    0.5,
+    0.5,
+    0.5
+  ],
+  "std": [
+    0.5,
+    0.5,
+    0.5
+  ],
+  "do_rescale": true,
+  "rescale_factor": 0.00392156862745098,
+  "format": "onnx",
+  "opset_version": 14
+}
