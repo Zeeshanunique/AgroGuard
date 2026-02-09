@@ -8,7 +8,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'light',
-  newArchEnabled: true,
+  newArchEnabled: false,
   scheme: 'agroguard',
   splash: {
     image: './assets/splash-icon.png',
@@ -54,6 +54,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     'onnxruntime-react-native',
+    './plugins/withOnnxruntimePackage',
   ],
   experiments: {
     typedRoutes: true,
