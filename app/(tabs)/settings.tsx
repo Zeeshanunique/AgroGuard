@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,15 +8,49 @@ import {
   Switch,
   Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSizes, BorderRadius, Shadows } from '../../src/constants/theme';
 import { Card } from '../../src/components/ui';
-import { useModel } from '../../src/context';
+import { useModel, useDatabase } from '../../src/context';
+
+const PREFS_KEY = '@agroguard_preferences';
 
 export default function SettingsScreen() {
   const { modelInfo, isReady } = useModel();
+  const db = useDatabase();
   const [saveHistory, setSaveHistory] = React.useState(true);
   const [highAccuracyMode, setHighAccuracyMode] = React.useState(false);
+
+  // Load persisted preferences
+  useEffect(() => {
+    AsyncStorage.getItem(PREFS_KEY).then(json => {
+      if (json) {
+        const prefs = JSON.parse(json);
+        if (prefs.saveHistory !== undefined) setSaveHistory(prefs.saveHistory);
+        if (prefs.highAccuracyMode !== undefined) setHighAccuracyMode(prefs.highAccuracyMode);
+      }
+    });
+  }, []);
+
+  // Persist preference changes
+  const updatePref = useCallback((key: string, value: boolean) => {
+    AsyncStorage.getItem(PREFS_KEY).then(json => {
+      const prefs = json ? JSON.parse(json) : {};
+      prefs[key] = value;
+      AsyncStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    });
+  }, []);
+
+  const handleSaveHistoryChange = (value: boolean) => {
+    setSaveHistory(value);
+    updatePref('saveHistory', value);
+  };
+
+  const handleHighAccuracyChange = (value: boolean) => {
+    setHighAccuracyMode(value);
+    updatePref('highAccuracyMode', value);
+  };
 
   const handleClearHistory = () => {
     Alert.alert(
@@ -27,8 +61,8 @@ export default function SettingsScreen() {
         {
           text: 'Clear',
           style: 'destructive',
-          onPress: () => {
-            // Clear history from database
+          onPress: async () => {
+            await db.clearScanHistory();
             Alert.alert('Success', 'Scan history cleared');
           },
         },
@@ -97,7 +131,7 @@ export default function SettingsScreen() {
           </View>
           <Switch
             value={saveHistory}
-            onValueChange={setSaveHistory}
+            onValueChange={handleSaveHistoryChange}
             trackColor={{ true: Colors.primary }}
             thumbColor={Colors.surface}
           />
@@ -112,7 +146,7 @@ export default function SettingsScreen() {
           </View>
           <Switch
             value={highAccuracyMode}
-            onValueChange={setHighAccuracyMode}
+            onValueChange={handleHighAccuracyChange}
             trackColor={{ true: Colors.primary }}
             thumbColor={Colors.surface}
           />

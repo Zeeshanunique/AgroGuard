@@ -10,14 +10,30 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSizes, BorderRadius, Shadows } from '../../src/constants/theme';
-import { CROP_LABELS } from '../../src/ml/labels';
+import { CROP_LABELS, DISEASE_LABELS } from '../../src/ml/labels';
 
-const crops = Object.entries(CROP_LABELS).map(([id, crop]) => ({
-  id,
-  ...crop,
-}));
+// Count disease classes per crop from PlantVillage dataset
+const diseaseCountByCrop: { [cropIndex: number]: number } = {};
+Object.values(DISEASE_LABELS).forEach(d => {
+  diseaseCountByCrop[d.cropIndex] = (diseaseCountByCrop[d.cropIndex] || 0) + 1;
+});
 
-const categories = ['All', ...new Set(crops.map((c) => c.category))];
+const crops = Object.entries(CROP_LABELS)
+  .map(([id, crop]) => ({
+    id,
+    ...crop,
+    diseaseCount: diseaseCountByCrop[parseInt(id)] || 0,
+    isSupported: (diseaseCountByCrop[parseInt(id)] || 0) > 0,
+  }))
+  // Sort: supported crops first (by disease count desc), then unsupported alphabetically
+  .sort((a, b) => {
+    if (a.isSupported && !b.isSupported) return -1;
+    if (!a.isSupported && b.isSupported) return 1;
+    if (a.isSupported && b.isSupported) return b.diseaseCount - a.diseaseCount;
+    return a.name.localeCompare(b.name);
+  });
+
+const categories = ['All', 'Supported', ...new Set(crops.map((c) => c.category))];
 
 export default function BrowseScreen() {
   const router = useRouter();
@@ -28,7 +44,9 @@ export default function BrowseScreen() {
     const matchesSearch =
       crop.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       crop.scientificName.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = selectedCategory === 'All' || crop.category === selectedCategory;
+    const matchesCategory =
+      selectedCategory === 'All' ||
+      (selectedCategory === 'Supported' ? crop.isSupported : crop.category === selectedCategory);
     return matchesSearch && matchesCategory;
   });
 
@@ -92,19 +110,29 @@ export default function BrowseScreen() {
         columnWrapperStyle={styles.row}
         renderItem={({ item }) => (
           <TouchableOpacity
-            style={styles.cropCard}
+            style={[styles.cropCard, item.isSupported && styles.supportedCard]}
             onPress={() => handleCropPress(item.id)}
             activeOpacity={0.7}
           >
-            <View style={styles.cropIconContainer}>
-              <Ionicons name="leaf" size={32} color={Colors.primary} />
+            {item.isSupported && (
+              <View style={styles.supportedBadge}>
+                <Ionicons name="checkmark-circle" size={12} color={Colors.textLight} />
+                <Text style={styles.supportedBadgeText}>
+                  {item.diseaseCount} {item.diseaseCount === 1 ? 'class' : 'classes'}
+                </Text>
+              </View>
+            )}
+            <View style={[styles.cropIconContainer, item.isSupported && styles.supportedIcon]}>
+              <Ionicons name="leaf" size={32} color={item.isSupported ? Colors.primary : Colors.textSecondary} />
             </View>
             <Text style={styles.cropName}>{item.name}</Text>
             <Text style={styles.cropScientific} numberOfLines={1}>
               {item.scientificName}
             </Text>
-            <View style={styles.categoryBadge}>
-              <Text style={styles.categoryBadgeText}>{item.category}</Text>
+            <View style={[styles.categoryBadge, !item.isSupported && styles.unsupportedBadge]}>
+              <Text style={[styles.categoryBadgeText, !item.isSupported && styles.unsupportedBadgeText]}>
+                {item.category}
+              </Text>
             </View>
           </TouchableOpacity>
         )}
@@ -182,6 +210,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     ...Shadows.sm,
   },
+  supportedCard: {
+    borderWidth: 1,
+    borderColor: Colors.primary + '30',
+  },
+  supportedBadge: {
+    position: 'absolute',
+    top: Spacing.xs,
+    right: Spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.xs + 2,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.sm,
+    gap: 3,
+  },
+  supportedBadgeText: {
+    fontSize: 9,
+    color: Colors.textLight,
+    fontWeight: '700',
+  },
   cropIconContainer: {
     width: 64,
     height: 64,
@@ -190,6 +239,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: Spacing.sm,
+  },
+  supportedIcon: {
+    backgroundColor: Colors.primaryLight + '30',
   },
   cropName: {
     fontSize: FontSizes.md,
@@ -215,6 +267,12 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.xs,
     color: Colors.primary,
     fontWeight: '500',
+  },
+  unsupportedBadge: {
+    backgroundColor: Colors.textSecondary + '15',
+  },
+  unsupportedBadgeText: {
+    color: Colors.textSecondary,
   },
   emptyContainer: {
     flex: 1,

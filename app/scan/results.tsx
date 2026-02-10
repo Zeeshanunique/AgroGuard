@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,84 +11,13 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSizes, BorderRadius, Shadows } from '../../src/constants/theme';
 import { Card, ConfidenceBar, Button } from '../../src/components/ui';
-
-// Mock treatment data - in production, this would come from the database
-const getMockTreatments = (diseaseName: string, isHealthy: boolean) => {
-  if (isHealthy) {
-    return {
-      organic: [
-        {
-          name: 'Preventive Care',
-          description: 'Continue regular maintenance to keep your plant healthy',
-          application: 'Regular watering and proper nutrition',
-          dosage: 'As needed based on soil moisture',
-          precautions: ['Avoid overwatering', 'Ensure proper drainage'],
-        },
-      ],
-      chemical: [],
-    };
-  }
-
-  return {
-    organic: [
-      {
-        name: 'Neem Oil Spray',
-        description: 'Natural fungicide derived from neem tree seeds',
-        application: 'Spray on affected leaves every 7-14 days',
-        dosage: '2-4 tablespoons per gallon of water',
-        precautions: ['Avoid spraying in direct sunlight', 'Test on small area first'],
-        effectiveness: 'Medium',
-      },
-      {
-        name: 'Baking Soda Solution',
-        description: 'Creates alkaline environment unfavorable to fungus',
-        application: 'Spray weekly on affected leaves',
-        dosage: '1 tbsp baking soda + 1 tsp liquid soap per gallon water',
-        precautions: ['Do not use in excess', 'May affect soil pH'],
-        effectiveness: 'Low-Medium',
-      },
-      {
-        name: 'Crop Rotation',
-        description: 'Prevent disease buildup by rotating crops each season',
-        application: 'Plant different crop families in same location each year',
-        dosage: 'N/A',
-        precautions: ['Plan 3-4 year rotation cycles'],
-        effectiveness: 'High (preventive)',
-      },
-    ],
-    chemical: [
-      {
-        name: 'Chlorothalonil',
-        description: 'Broad-spectrum contact fungicide',
-        application: 'Spray every 7-10 days during disease pressure',
-        dosage: 'Follow manufacturer label instructions',
-        precautions: [
-          'Wear protective equipment',
-          'Keep away from water sources',
-          'Observe pre-harvest interval',
-          'Not for organic production',
-        ],
-        effectiveness: 'High',
-      },
-      {
-        name: 'Copper Fungicide',
-        description: 'Preventive and early-stage disease control',
-        application: 'Apply before or at first sign of disease',
-        dosage: 'Per label - typically 1-4 tbsp per gallon',
-        precautions: [
-          'Can accumulate in soil',
-          'Avoid application during hot weather',
-          'Some formulations are organic-approved',
-        ],
-        effectiveness: 'Medium-High',
-      },
-    ],
-  };
-};
+import { useDatabase } from '../../src/context';
+import { TreatmentData, DiseaseData } from '../../src/database';
 
 export default function ResultsScreen() {
   const params = useLocalSearchParams();
   const router = useRouter();
+  const db = useDatabase();
   const [activeTab, setActiveTab] = useState<'organic' | 'chemical'>('organic');
 
   const imageUri = params.imageUri as string;
@@ -100,7 +29,29 @@ export default function ResultsScreen() {
   const severity = params.severity as string;
   const inferenceTime = params.inferenceTime as string;
 
-  const treatments = getMockTreatments(diseaseName, isHealthy);
+  // Get real treatments from database
+  const { organicTreatments, chemicalTreatments, diseaseInfo } = useMemo(() => {
+    // Try exact match first: crop + disease name
+    let treatments = db.getTreatmentsForDisease(cropName, diseaseName);
+    let info: DiseaseData | undefined = db.getDiseaseByName(cropName, diseaseName);
+
+    // If no match, try fuzzy search across all crops
+    if (treatments.length === 0 && !isHealthy) {
+      const found = db.findDisease(diseaseName);
+      if (found) {
+        treatments = found.disease.treatments;
+        info = found.disease;
+      }
+    }
+
+    return {
+      organicTreatments: treatments.filter(t => t.type === 'organic'),
+      chemicalTreatments: treatments.filter(t => t.type === 'chemical'),
+      diseaseInfo: info,
+    };
+  }, [cropName, diseaseName, isHealthy]);
+
+  const treatments = activeTab === 'organic' ? organicTreatments : chemicalTreatments;
 
   const handleScanAgain = () => {
     router.replace('/scan/camera');
@@ -167,6 +118,25 @@ export default function ResultsScreen() {
       </Card>
 
       {/* Health Status */}
+      {/* Disease Info from DB */}
+      {diseaseInfo && !isHealthy && diseaseInfo.symptoms && (
+        <Card style={styles.resultCard}>
+          <Text style={styles.sectionTitle}>Symptoms</Text>
+          {diseaseInfo.symptoms.map((symptom, i) => (
+            <View key={i} style={styles.symptomItem}>
+              <Ionicons name="ellipse" size={6} color={Colors.primary} />
+              <Text style={styles.symptomText}>{symptom}</Text>
+            </View>
+          ))}
+          {diseaseInfo.causes && (
+            <>
+              <Text style={[styles.sectionTitle, { marginTop: Spacing.md }]}>Cause</Text>
+              <Text style={styles.causeText}>{diseaseInfo.causes}</Text>
+            </>
+          )}
+        </Card>
+      )}
+
       {isHealthy ? (
         <Card style={styles.statusCard}>
           <Ionicons name="happy" size={48} color={Colors.healthy} />
@@ -192,7 +162,7 @@ export default function ResultsScreen() {
               <Text
                 style={[styles.tabText, activeTab === 'organic' && styles.activeTabText]}
               >
-                Organic
+                Organic ({organicTreatments.length})
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -207,14 +177,14 @@ export default function ResultsScreen() {
               <Text
                 style={[styles.tabText, activeTab === 'chemical' && styles.activeTabText]}
               >
-                Chemical
+                Chemical ({chemicalTreatments.length})
               </Text>
             </TouchableOpacity>
           </View>
 
           {/* Treatment List */}
-          {treatments[activeTab].length > 0 ? (
-            treatments[activeTab].map((treatment, index) => (
+          {treatments.length > 0 ? (
+            treatments.map((treatment, index) => (
               <Card key={index} style={styles.treatmentCard}>
                 <Text style={styles.treatmentName}>{treatment.name}</Text>
                 <Text style={styles.treatmentDescription}>{treatment.description}</Text>
@@ -223,7 +193,7 @@ export default function ResultsScreen() {
                   <Ionicons name="color-wand" size={16} color={Colors.primary} />
                   <View style={styles.detailContent}>
                     <Text style={styles.detailLabel}>Application</Text>
-                    <Text style={styles.detailText}>{treatment.application}</Text>
+                    <Text style={styles.detailText}>{treatment.applicationMethod}</Text>
                   </View>
                 </View>
 
@@ -234,6 +204,16 @@ export default function ResultsScreen() {
                     <Text style={styles.detailText}>{treatment.dosage}</Text>
                   </View>
                 </View>
+
+                {treatment.frequency && (
+                  <View style={styles.treatmentDetail}>
+                    <Ionicons name="repeat" size={16} color={Colors.primary} />
+                    <View style={styles.detailContent}>
+                      <Text style={styles.detailLabel}>Frequency</Text>
+                      <Text style={styles.detailText}>{treatment.frequency}</Text>
+                    </View>
+                  </View>
+                )}
 
                 {treatment.precautions.length > 0 && (
                   <View style={styles.precautionsContainer}>
@@ -247,13 +227,20 @@ export default function ResultsScreen() {
                   </View>
                 )}
 
-                {treatment.effectiveness && (
+                <View style={styles.treatmentMeta}>
                   <View style={styles.effectivenessBadge}>
                     <Text style={styles.effectivenessText}>
-                      Effectiveness: {treatment.effectiveness}
+                      Effectiveness: {treatment.effectiveness.charAt(0).toUpperCase() + treatment.effectiveness.slice(1)}
                     </Text>
                   </View>
-                )}
+                  {treatment.costLevel && (
+                    <View style={[styles.effectivenessBadge, { backgroundColor: Colors.textSecondary + '15' }]}>
+                      <Text style={[styles.effectivenessText, { color: Colors.textSecondary }]}>
+                        Cost: {treatment.costLevel.charAt(0).toUpperCase() + treatment.costLevel.slice(1)}
+                      </Text>
+                    </View>
+                  )}
+                </View>
               </Card>
             ))
           ) : (
@@ -262,6 +249,16 @@ export default function ResultsScreen() {
                 No {activeTab} treatments available for this disease.
               </Text>
             </Card>
+          )}
+
+          {/* Prevention */}
+          {diseaseInfo?.prevention && (
+            <>
+              <Text style={styles.sectionTitle}>Prevention</Text>
+              <Card>
+                <Text style={styles.causeText}>{diseaseInfo.prevention}</Text>
+              </Card>
+            </>
           )}
         </>
       )}
@@ -491,18 +488,38 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.sm,
     color: Colors.text,
   },
+  treatmentMeta: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+    flexWrap: 'wrap',
+  },
   effectivenessBadge: {
-    alignSelf: 'flex-start',
     backgroundColor: Colors.primary + '20',
     paddingHorizontal: Spacing.sm,
     paddingVertical: 4,
     borderRadius: BorderRadius.sm,
-    marginTop: Spacing.sm,
   },
   effectivenessText: {
     fontSize: FontSizes.xs,
     color: Colors.primary,
     fontWeight: '500',
+  },
+  symptomItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.xs,
+  },
+  symptomText: {
+    flex: 1,
+    fontSize: FontSizes.md,
+    color: Colors.text,
+  },
+  causeText: {
+    fontSize: FontSizes.md,
+    color: Colors.textSecondary,
+    lineHeight: 22,
   },
   emptyCard: {
     alignItems: 'center',

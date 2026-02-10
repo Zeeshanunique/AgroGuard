@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,47 +8,24 @@ import {
   Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSizes, BorderRadius, Shadows } from '../../src/constants/theme';
 import { Card, ConfidenceBar } from '../../src/components/ui';
-
-// Mock history data for UI development
-const mockHistory = [
-  {
-    id: '1',
-    imageUri: '',
-    cropName: 'Tomato',
-    diseaseName: 'Early Blight',
-    cropConfidence: 0.92,
-    diseaseConfidence: 0.87,
-    isHealthy: false,
-    scannedAt: new Date(Date.now() - 1000 * 60 * 30),
-  },
-  {
-    id: '2',
-    imageUri: '',
-    cropName: 'Apple',
-    diseaseName: 'Healthy',
-    cropConfidence: 0.95,
-    diseaseConfidence: 0.91,
-    isHealthy: true,
-    scannedAt: new Date(Date.now() - 1000 * 60 * 60 * 2),
-  },
-  {
-    id: '3',
-    imageUri: '',
-    cropName: 'Grape',
-    diseaseName: 'Black Rot',
-    cropConfidence: 0.88,
-    diseaseConfidence: 0.82,
-    isHealthy: false,
-    scannedAt: new Date(Date.now() - 1000 * 60 * 60 * 24),
-  },
-];
+import { useDatabase } from '../../src/context';
+import { ScanHistoryItem } from '../../src/database';
 
 export default function HistoryScreen() {
   const router = useRouter();
-  const [history, setHistory] = useState(mockHistory);
+  const db = useDatabase();
+  const [history, setHistory] = useState<ScanHistoryItem[]>([]);
+
+  // Reload history every time the tab is focused
+  useFocusEffect(
+    useCallback(() => {
+      db.getScanHistory().then(setHistory);
+    }, [])
+  );
 
   const formatDate = (date: Date) => {
     const now = new Date();
@@ -63,8 +40,21 @@ export default function HistoryScreen() {
     return date.toLocaleDateString();
   };
 
-  const handleItemPress = (id: string) => {
-    router.push(`/scan/results?historyId=${id}`);
+  const handleItemPress = (item: ScanHistoryItem) => {
+    router.push({
+      pathname: '/scan/results',
+      params: {
+        scanId: item.id,
+        imageUri: item.imageUri,
+        cropName: item.cropName,
+        cropConfidence: item.cropConfidence.toString(),
+        diseaseName: item.diseaseName,
+        diseaseConfidence: item.diseaseConfidence.toString(),
+        isHealthy: item.isHealthy ? 'true' : 'false',
+        severity: item.severity || 'unknown',
+        inferenceTime: '0',
+      },
+    });
   };
 
   return (
@@ -77,7 +67,7 @@ export default function HistoryScreen() {
           showsVerticalScrollIndicator={false}
           renderItem={({ item }) => (
             <TouchableOpacity
-              onPress={() => handleItemPress(item.id)}
+              onPress={() => handleItemPress(item)}
               activeOpacity={0.7}
             >
               <Card style={styles.historyCard}>

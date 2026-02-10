@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,41 +11,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../../../src/constants/theme';
 import { Card } from '../../../src/components/ui';
 import { DISEASE_LABELS, CROP_LABELS } from '../../../src/ml/labels';
-
-// Mock treatment data
-const getMockTreatments = (isHealthy: boolean) => {
-  if (isHealthy) return { organic: [], chemical: [] };
-
-  return {
-    organic: [
-      {
-        name: 'Neem Oil Spray',
-        description: 'Natural fungicide derived from neem tree',
-        dosage: '2-4 tbsp per gallon of water',
-        application: 'Spray every 7-14 days',
-      },
-      {
-        name: 'Baking Soda Solution',
-        description: 'Creates alkaline environment',
-        dosage: '1 tbsp per gallon with liquid soap',
-        application: 'Weekly foliar spray',
-      },
-    ],
-    chemical: [
-      {
-        name: 'Chlorothalonil',
-        description: 'Broad-spectrum fungicide',
-        dosage: 'Per manufacturer instructions',
-        application: 'Every 7-10 days during disease pressure',
-      },
-    ],
-  };
-};
+import { useDatabase } from '../../../src/context';
 
 export default function DiseaseDetailScreen() {
   const { id } = useLocalSearchParams();
   const diseaseId = parseInt(id as string, 10);
   const disease = DISEASE_LABELS[diseaseId];
+  const db = useDatabase();
   const [activeTab, setActiveTab] = useState<'organic' | 'chemical'>('organic');
 
   if (!disease) {
@@ -57,7 +29,33 @@ export default function DiseaseDetailScreen() {
   }
 
   const crop = CROP_LABELS[disease.cropIndex];
-  const treatments = getMockTreatments(disease.isHealthy);
+
+  // Get real treatments from database
+  const { organicTreatments, chemicalTreatments, diseaseInfo } = useMemo(() => {
+    const cropName = crop?.name || '';
+    const diseaseName = disease.name;
+
+    // Try exact match
+    let found = db.getDiseaseByName(cropName, diseaseName);
+    let allTreatments = found?.treatments || [];
+
+    // Fuzzy search if no match
+    if (allTreatments.length === 0 && !disease.isHealthy) {
+      const fuzzy = db.findDisease(diseaseName);
+      if (fuzzy) {
+        allTreatments = fuzzy.disease.treatments;
+        found = fuzzy.disease;
+      }
+    }
+
+    return {
+      organicTreatments: allTreatments.filter(t => t.type === 'organic'),
+      chemicalTreatments: allTreatments.filter(t => t.type === 'chemical'),
+      diseaseInfo: found,
+    };
+  }, [disease, crop]);
+
+  const treatments = activeTab === 'organic' ? organicTreatments : chemicalTreatments;
 
   return (
     <>
@@ -109,11 +107,37 @@ export default function DiseaseDetailScreen() {
             {disease.isHealthy ? 'Healthy Plant' : 'Disease Detected'}
           </Text>
           <Text style={styles.statusDescription}>
-            {disease.isHealthy
-              ? 'This represents a healthy state of the plant. No treatment is necessary - continue regular care and maintenance.'
-              : 'This condition requires attention. Review the treatment options below to help manage and cure the disease.'}
+            {diseaseInfo?.description ||
+              (disease.isHealthy
+                ? 'This represents a healthy state of the plant. No treatment is necessary - continue regular care and maintenance.'
+                : 'This condition requires attention. Review the treatment options below to help manage and cure the disease.')}
           </Text>
         </Card>
+
+        {/* Symptoms from DB */}
+        {diseaseInfo && !disease.isHealthy && diseaseInfo.symptoms && diseaseInfo.symptoms.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>Symptoms</Text>
+            <Card style={styles.symptomsCard}>
+              {diseaseInfo.symptoms.map((symptom, i) => (
+                <View key={i} style={styles.symptomItem}>
+                  <Ionicons name="ellipse" size={6} color={Colors.diseased} />
+                  <Text style={styles.symptomText}>{symptom}</Text>
+                </View>
+              ))}
+            </Card>
+          </>
+        )}
+
+        {/* Cause */}
+        {diseaseInfo?.causes && (
+          <>
+            <Text style={styles.sectionTitle}>Cause</Text>
+            <Card>
+              <Text style={styles.statusDescription}>{diseaseInfo.causes}</Text>
+            </Card>
+          </>
+        )}
 
         {/* Treatments (only for diseases) */}
         {!disease.isHealthy && (
@@ -134,7 +158,7 @@ export default function DiseaseDetailScreen() {
                 <Text
                   style={[styles.tabText, activeTab === 'organic' && styles.activeTabText]}
                 >
-                  Organic ({treatments.organic.length})
+                  Organic ({organicTreatments.length})
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -149,17 +173,25 @@ export default function DiseaseDetailScreen() {
                 <Text
                   style={[styles.tabText, activeTab === 'chemical' && styles.activeTabText]}
                 >
-                  Chemical ({treatments.chemical.length})
+                  Chemical ({chemicalTreatments.length})
                 </Text>
               </TouchableOpacity>
             </View>
 
             {/* Treatment List */}
-            {treatments[activeTab].length > 0 ? (
-              treatments[activeTab].map((treatment, index) => (
+            {treatments.length > 0 ? (
+              treatments.map((treatment, index) => (
                 <Card key={index} style={styles.treatmentCard}>
                   <Text style={styles.treatmentName}>{treatment.name}</Text>
                   <Text style={styles.treatmentDescription}>{treatment.description}</Text>
+
+                  <View style={styles.treatmentDetail}>
+                    <Ionicons name="color-wand" size={16} color={Colors.primary} />
+                    <View style={styles.detailContent}>
+                      <Text style={styles.detailLabel}>Application</Text>
+                      <Text style={styles.detailText}>{treatment.applicationMethod}</Text>
+                    </View>
+                  </View>
 
                   <View style={styles.treatmentDetail}>
                     <Ionicons name="beaker" size={16} color={Colors.primary} />
@@ -169,12 +201,41 @@ export default function DiseaseDetailScreen() {
                     </View>
                   </View>
 
-                  <View style={styles.treatmentDetail}>
-                    <Ionicons name="time" size={16} color={Colors.primary} />
-                    <View style={styles.detailContent}>
-                      <Text style={styles.detailLabel}>Application</Text>
-                      <Text style={styles.detailText}>{treatment.application}</Text>
+                  {treatment.frequency && (
+                    <View style={styles.treatmentDetail}>
+                      <Ionicons name="repeat" size={16} color={Colors.primary} />
+                      <View style={styles.detailContent}>
+                        <Text style={styles.detailLabel}>Frequency</Text>
+                        <Text style={styles.detailText}>{treatment.frequency}</Text>
+                      </View>
                     </View>
+                  )}
+
+                  {treatment.precautions.length > 0 && (
+                    <View style={styles.precautionsContainer}>
+                      <Text style={styles.precautionsTitle}>Precautions</Text>
+                      {treatment.precautions.map((p, i) => (
+                        <View key={i} style={styles.precautionItem}>
+                          <Ionicons name="alert-circle" size={14} color={Colors.warning} />
+                          <Text style={styles.precautionText}>{p}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  <View style={styles.treatmentMeta}>
+                    <View style={styles.effectivenessBadge}>
+                      <Text style={styles.effectivenessText}>
+                        Effectiveness: {treatment.effectiveness.charAt(0).toUpperCase() + treatment.effectiveness.slice(1)}
+                      </Text>
+                    </View>
+                    {treatment.costLevel && (
+                      <View style={[styles.effectivenessBadge, { backgroundColor: Colors.textSecondary + '15' }]}>
+                        <Text style={[styles.effectivenessText, { color: Colors.textSecondary }]}>
+                          Cost: {treatment.costLevel.charAt(0).toUpperCase() + treatment.costLevel.slice(1)}
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 </Card>
               ))
@@ -191,11 +252,17 @@ export default function DiseaseDetailScreen() {
         {/* Prevention Tips */}
         <Text style={styles.sectionTitle}>Prevention Tips</Text>
         <Card style={styles.tipsCard}>
-          <TipItem icon="water" text="Avoid overwatering and ensure proper drainage" />
-          <TipItem icon="sunny" text="Provide adequate sunlight and air circulation" />
-          <TipItem icon="trash" text="Remove infected plant debris promptly" />
-          <TipItem icon="swap-horizontal" text="Practice crop rotation when possible" />
-          <TipItem icon="eye" text="Monitor plants regularly for early symptoms" />
+          {diseaseInfo?.prevention ? (
+            <Text style={styles.statusDescription}>{diseaseInfo.prevention}</Text>
+          ) : (
+            <>
+              <TipItem icon="water" text="Avoid overwatering and ensure proper drainage" />
+              <TipItem icon="sunny" text="Provide adequate sunlight and air circulation" />
+              <TipItem icon="trash" text="Remove infected plant debris promptly" />
+              <TipItem icon="swap-horizontal" text="Practice crop rotation when possible" />
+              <TipItem icon="eye" text="Monitor plants regularly for early symptoms" />
+            </>
+          )}
         </Card>
       </ScrollView>
     </>
@@ -380,6 +447,60 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.sm,
     color: Colors.textSecondary,
     marginTop: 2,
+  },
+  precautionsContainer: {
+    backgroundColor: Colors.warning + '10',
+    padding: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    marginTop: Spacing.sm,
+  },
+  precautionsTitle: {
+    fontSize: FontSizes.sm,
+    fontWeight: '600',
+    color: Colors.warning,
+    marginBottom: Spacing.xs,
+  },
+  precautionItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.xs,
+    marginTop: 4,
+  },
+  precautionText: {
+    flex: 1,
+    fontSize: FontSizes.sm,
+    color: Colors.text,
+  },
+  treatmentMeta: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+    flexWrap: 'wrap',
+  },
+  effectivenessBadge: {
+    backgroundColor: Colors.primary + '20',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.sm,
+  },
+  effectivenessText: {
+    fontSize: FontSizes.xs,
+    color: Colors.primary,
+    fontWeight: '500',
+  },
+  symptomsCard: {
+    marginBottom: Spacing.md,
+  },
+  symptomItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.xs,
+  },
+  symptomText: {
+    flex: 1,
+    fontSize: FontSizes.md,
+    color: Colors.text,
   },
   emptyCard: {
     alignItems: 'center',

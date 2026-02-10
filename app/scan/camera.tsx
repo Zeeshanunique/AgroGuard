@@ -15,9 +15,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../../src/constants/theme';
 import { Button } from '../../src/components/ui';
 import { modelManager } from '../../src/ml';
+import { useDatabase } from '../../src/context';
 
 export default function CameraScreen() {
   const router = useRouter();
+  const db = useDatabase();
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>('back');
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -86,10 +88,23 @@ export default function CameraScreen() {
         throw new Error('No predictions returned from model');
       }
 
+      // Save to scan history
+      const savedScan = await db.addScanToHistory({
+        imageUri: capturedImage,
+        cropName: result.cropPrediction.className,
+        diseaseName: result.diseasePrediction.className,
+        cropConfidence: result.cropPrediction.confidence,
+        diseaseConfidence: result.diseasePrediction.confidence,
+        isHealthy: result.diseasePrediction.isHealthy || false,
+        severity: result.diseasePrediction.severity || 'unknown',
+        scannedAt: new Date(),
+      });
+
       // Navigate to results with the analysis data
       router.replace({
         pathname: '/scan/results',
         params: {
+          scanId: savedScan.id,
           imageUri: capturedImage,
           cropName: result.cropPrediction.className,
           cropConfidence: result.cropPrediction.confidence.toString(),
