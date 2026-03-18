@@ -22,16 +22,15 @@ export function ModelProvider({ children }: { children: ReactNode }) {
     try {
       setIsLoading(true);
       setError(null);
-      
-      // Initialize ML models (ONNX Runtime)
-      console.log('🚀 Starting ML model initialization...');
+
+      console.log('Initializing Gemini Flash...');
       await modelManager.initialize();
       setModelInfo(modelManager.getModelInfo());
       setIsReady(true);
-      console.log('✅ All models initialized and ready');
+      console.log('Gemini Flash ready');
     } catch (err) {
-      console.error('❌ Model initialization error:', err);
-      setError(err instanceof Error ? err : new Error('Failed to initialize models'));
+      console.error('Model initialization error:', err);
+      setError(err instanceof Error ? err : new Error('Failed to initialize Gemini'));
     } finally {
       setIsLoading(false);
     }

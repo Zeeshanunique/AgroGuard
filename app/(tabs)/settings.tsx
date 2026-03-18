@@ -84,12 +84,12 @@ export default function SettingsScreen() {
           </View>
         </View>
         <Text style={styles.appDescription}>
-          Offline plant disease detection powered by on-device AI
+          Plant disease detection powered by Gemini Flash AI
         </Text>
       </Card>
 
       {/* Model Status */}
-      <Text style={styles.sectionTitle}>ML Models</Text>
+      <Text style={styles.sectionTitle}>AI Model</Text>
       <Card style={styles.card}>
         <View style={styles.statusRow}>
           <Ionicons
@@ -98,22 +98,18 @@ export default function SettingsScreen() {
             color={isReady ? Colors.success : Colors.warning}
           />
           <Text style={styles.statusText}>
-            {isReady ? 'Models Loaded' : 'Loading Models...'}
+            {isReady ? 'Gemini Flash Ready' : 'Connecting...'}
           </Text>
         </View>
         {modelInfo && (
           <View style={styles.modelInfo}>
             <View style={styles.modelItem}>
-              <Text style={styles.modelLabel}>Crop Classifier</Text>
-              <Text style={styles.modelValue}>
-                {modelInfo.crop.numClasses} classes
-              </Text>
+              <Text style={styles.modelLabel}>Model</Text>
+              <Text style={styles.modelValue}>Gemini 2.5 Flash</Text>
             </View>
             <View style={styles.modelItem}>
-              <Text style={styles.modelLabel}>Disease Detector</Text>
-              <Text style={styles.modelValue}>
-                {modelInfo.disease.numClasses} classes
-              </Text>
+              <Text style={styles.modelLabel}>Mode</Text>
+              <Text style={styles.modelValue}>Cloud API</Text>
             </View>
           </View>
         )}

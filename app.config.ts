@@ -53,8 +53,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         photosPermission: 'AgroGuard needs photo library access to analyze plant leaf images.',
       },
     ],
-    'onnxruntime-react-native',
-    './plugins/withOnnxruntimePackage',
   ],
   experiments: {
     typedRoutes: true,

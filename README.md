@@ -1,11 +1,11 @@
 # AgroGuard
 
-Offline plant disease detection mobile app powered by on-device machine learning. Identify crop diseases from leaf photos without an internet connection.
+Plant disease detection mobile app powered by Google Gemini Flash AI. Identify crop diseases from leaf photos with high accuracy.
 
 ## Features
 
-- **Offline ML Inference** -- Runs MobileNetV2 on-device using ONNX Runtime, no server required
-- **38 Disease Classes** -- Covers 14 crop species including Apple, Tomato, Corn, Grape, Potato, and more
+- **Gemini Flash AI** -- Uses Google Gemini 2.5 Flash for accurate plant disease analysis
+- **Broad Coverage** -- Identifies diseases across 14+ crop species including Apple, Tomato, Corn, Grape, Potato, and more
 - **Camera & Gallery** -- Capture a leaf photo or pick from gallery for instant analysis
 - **Disease Details** -- View confidence scores, severity, and crop identification
 - **Scan History** -- Track past scans with local storage
@@ -17,9 +17,8 @@ Offline plant disease detection mobile app powered by on-device machine learning
 |-------|-----------|
 | Framework | React Native 0.81 + Expo SDK 54 |
 | Navigation | Expo Router 6 (file-based) |
-| ML Runtime | ONNX Runtime React Native 1.23 |
-| ML Model | MobileNetV2 (PlantVillage dataset) |
-| Image Processing | expo-image-manipulator + jpeg-js |
+| AI Model | Google Gemini 2.5 Flash (@google/genai) |
+| Image Processing | expo-image-manipulator |
 | Storage | AsyncStorage |
 | Language | TypeScript 5.9 |
 
@@ -40,59 +39,51 @@ AgroGuard/
 │       ├── crop/[id].tsx       # Crop detail page
 │       └── disease/[id].tsx    # Disease detail page
 ├── src/
-│   ├── ml/                     # Machine learning
-│   │   ├── ModelManager.ts     # ONNX inference engine
-│   │   ├── labels.ts           # 38 disease + 14 crop labels
-│   │   └── types.ts            # ML type definitions
+│   ├── ml/                     # AI integration
+│   │   ├── ModelManager.ts     # Gemini Flash API client
+│   │   ├── labels.ts           # Crop & disease label mappings
+│   │   └── types.ts            # Type definitions
 │   ├── components/ui/          # Reusable UI components
-│   ├── constants/              # App & ML config
+│   ├── constants/              # App & Gemini config
 │   ├── context/                # React providers
 │   └── database/               # Local data & seed data
-├── assets/models/
-│   └── plant_disease.onnx      # MobileNetV2 ONNX model (8.9 MB)
-├── plugins/
-│   └── withOnnxruntimePackage.js  # Expo config plugin (see note below)
-├── scripts/
-│   └── convert_model_to_onnx.py   # PyTorch to ONNX converter
+├── .env                        # API key (EXPO_PUBLIC_API_KEY)
 └── prd.md                      # Product requirements
 ```
 
-## ML Pipeline
+## AI Pipeline
 
 ```
 Camera/Gallery Image
        │
        ▼
-Resize to 224x224 (JPEG)
+Resize to 768x768 (JPEG)
        │
        ▼
-Decode pixels (jpeg-js)
+Base64 encode
        │
        ▼
-Normalize: (pixel - 127.5) / 127.5
-Convert to NCHW [1, 3, 224, 224]
+Gemini 2.5 Flash API (multimodal)
        │
        ▼
-ONNX Runtime Inference (CPU)
-       │
-       ▼
-Softmax → Top-K Predictions
+Structured JSON response
        │
        ▼
 Disease + Crop Identification
 ```
 
-**Model**: [`linkanjarad/mobilenet_v2_1.0_224-plant-disease-identification`](https://huggingface.co/linkanjarad/mobilenet_v2_1.0_224-plant-disease-identification) converted from PyTorch to ONNX format.
+**Model**: [Gemini 2.5 Flash](https://ai.google.dev/) via the `@google/genai` SDK. Requires an API key from [Google AI Studio](https://aistudio.google.com/).
 
 ## Supported Crops
 
 Apple, Blueberry, Cherry, Corn, Grape, Orange, Peach, Bell Pepper, Potato, Raspberry, Soybean, Squash, Strawberry, Tomato
 
-## Setup on a New System
+## Setup
 
 ### Prerequisites
 
 - **Node.js** >= 18
+- **Internet connection** (required for Gemini API)
 - **Android SDK** with accepted licenses (for local Android builds)
 - **Xcode** (for iOS builds, macOS only)
 
@@ -104,7 +95,15 @@ cd AgroGuard
 npm install
 ```
 
-### 2. Generate Native Projects
+### 2. Configure Gemini API Key
+
+Get a free API key from [Google AI Studio](https://aistudio.google.com/) and create a `.env` file in the project root:
+
+```
+EXPO_PUBLIC_API_KEY=your-gemini-api-key-here
+```
+
+### 3. Generate Native Projects
 
 The `android/` and `ios/` folders are gitignored (generated code). Regenerate them with:
 
@@ -112,12 +111,7 @@ The `android/` and `ios/` folders are gitignored (generated code). Regenerate th
 npx expo prebuild
 ```
 
-This automatically:
-- Creates the `android/` and `ios/` directories
-- Adds the `onnxruntime-react-native` Gradle dependency (via its official plugin)
-- **Registers `OnnxruntimePackage` in `MainApplication.kt`** (via `plugins/withOnnxruntimePackage.js`)
-
-### 3. Accept Android SDK Licenses
+### 4. Accept Android SDK Licenses
 
 If building locally for Android, make sure all SDK licenses are accepted:
 
@@ -133,7 +127,7 @@ export ANDROID_HOME=$HOME/Library/Android/sdk
 export PATH=$PATH:$ANDROID_HOME/platform-tools
 ```
 
-### 4. Run
+### 5. Run
 
 ```bash
 # Start Metro bundler
@@ -145,8 +139,6 @@ npm run android
 # Build & run on iOS simulator (macOS only)
 npm run ios
 ```
-
-> **Important**: This app uses `onnxruntime-react-native` (native module). It requires a development build and will **not** work in Expo Go.
 
 ## Build APK
 
@@ -161,26 +153,6 @@ npx expo run:android
 
 ```bash
 npx eas build --platform android --profile preview
-```
-
-## About `withOnnxruntimePackage` Plugin
-
-The official `onnxruntime-react-native` Expo plugin adds the Gradle dependency but does **not** register its native modules with the React Native bridge. Without the custom plugin at `plugins/withOnnxruntimePackage.js`, the app will crash at runtime with:
-
-```
-TypeError: Cannot read property 'install' of null
-```
-
-The plugin automatically injects `OnnxruntimePackage()` into `MainApplication.kt` during `expo prebuild`, so no manual patching is needed.
-
-## Model Conversion
-
-To re-convert the model from HuggingFace:
-
-```bash
-pip install torch torchvision transformers onnx
-python scripts/convert_model_to_onnx.py
-cp plant_disease.onnx assets/models/
 ```
 
 ## License

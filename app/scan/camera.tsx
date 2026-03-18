@@ -166,35 +166,35 @@ export default function CameraScreen() {
     <View style={styles.container}>
       <CameraView
         ref={cameraRef}
-        style={styles.camera}
+        style={StyleSheet.absoluteFill}
         facing={facing}
-      >
-        {/* Guide Frame */}
-        <View style={styles.guideContainer}>
-          <View style={styles.guideFrame}>
-            <View style={[styles.corner, styles.topLeft]} />
-            <View style={[styles.corner, styles.topRight]} />
-            <View style={[styles.corner, styles.bottomLeft]} />
-            <View style={[styles.corner, styles.bottomRight]} />
-          </View>
-          <Text style={styles.guideText}>Position the leaf within the frame</Text>
+      />
+
+      {/* Guide Frame */}
+      <View style={styles.guideContainer}>
+        <View style={styles.guideFrame}>
+          <View style={[styles.corner, styles.topLeft]} />
+          <View style={[styles.corner, styles.topRight]} />
+          <View style={[styles.corner, styles.bottomLeft]} />
+          <View style={[styles.corner, styles.bottomRight]} />
         </View>
+        <Text style={styles.guideText}>Position the leaf within the frame</Text>
+      </View>
 
-        {/* Controls */}
-        <View style={styles.controls}>
-          <TouchableOpacity style={styles.controlButton} onPress={pickImage}>
-            <Ionicons name="images" size={28} color={Colors.textLight} />
-          </TouchableOpacity>
+      {/* Controls */}
+      <View style={styles.controls}>
+        <TouchableOpacity style={styles.controlButton} onPress={pickImage}>
+          <Ionicons name="images" size={28} color={Colors.textLight} />
+        </TouchableOpacity>
 
-          <TouchableOpacity style={styles.captureButton} onPress={takePicture}>
-            <View style={styles.captureInner} />
-          </TouchableOpacity>
+        <TouchableOpacity style={styles.captureButton} onPress={takePicture}>
+          <View style={styles.captureInner} />
+        </TouchableOpacity>
 
-          <TouchableOpacity style={styles.controlButton} onPress={toggleFacing}>
-            <Ionicons name="camera-reverse" size={28} color={Colors.textLight} />
-          </TouchableOpacity>
-        </View>
-      </CameraView>
+        <TouchableOpacity style={styles.controlButton} onPress={toggleFacing}>
+          <Ionicons name="camera-reverse" size={28} color={Colors.textLight} />
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -224,11 +224,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: Spacing.xl,
   },
-  camera: {
-    flex: 1,
-  },
   guideContainer: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -280,6 +277,10 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
   },
   controls: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',

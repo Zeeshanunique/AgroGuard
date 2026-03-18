@@ -30,7 +30,7 @@ export default function ScanScreen() {
         </View>
         <Text style={styles.heroTitle}>Plant Disease Detection</Text>
         <Text style={styles.heroSubtitle}>
-          Scan a leaf to identify the crop and detect diseases instantly - works completely offline!
+          Scan a leaf to identify the crop and detect diseases instantly with Gemini AI
         </Text>
       </View>
 
@@ -44,7 +44,7 @@ export default function ScanScreen() {
         <View style={styles.scanButtonInner}>
           <Ionicons name="camera" size={48} color={Colors.textLight} />
           <Text style={styles.scanButtonText}>
-            {isLoading ? 'Loading Models...' : 'Scan Leaf'}
+            {isLoading ? 'Connecting...' : 'Scan Leaf'}
           </Text>
         </View>
       </TouchableOpacity>
@@ -52,7 +52,7 @@ export default function ScanScreen() {
       {error && (
         <Card style={styles.errorCard}>
           <Text style={styles.errorText}>
-            Failed to load ML models. Please restart the app.
+            Failed to connect to Gemini AI. Check your internet and API key.
           </Text>
         </Card>
       )}
@@ -61,9 +61,9 @@ export default function ScanScreen() {
       <Text style={styles.sectionTitle}>Features</Text>
       <View style={styles.features}>
         <FeatureCard
-          icon="cloud-offline"
-          title="100% Offline"
-          description="No internet needed"
+          icon="sparkles"
+          title="Gemini AI"
+          description="Powered by Google"
         />
         <FeatureCard
           icon="flash"
