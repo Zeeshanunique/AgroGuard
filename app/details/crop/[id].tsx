@@ -11,7 +11,7 @@ import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSizes, BorderRadius, Shadows } from '../../../src/constants/theme';
 import { Card } from '../../../src/components/ui';
-import { CROP_LABELS, DISEASE_LABELS } from '../../../src/ml/labels';
+import { CROP_LABELS, DISEASE_LABELS, isPlantVillageCropIndex } from '../../../src/ml/labels';
 
 export default function CropDetailScreen() {
   const { id } = useLocalSearchParams();
@@ -35,6 +35,8 @@ export default function CropDetailScreen() {
     );
   }
 
+  const inModel = isPlantVillageCropIndex(cropId);
+
   const handleDiseasePress = (diseaseId: string) => {
     router.push(`/details/disease/${diseaseId}`);
   };
@@ -43,6 +45,14 @@ export default function CropDetailScreen() {
     <>
       <Stack.Screen options={{ title: crop.name }} />
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        {!inModel && (
+          <View style={styles.warnBanner}>
+            <Ionicons name="warning-outline" size={20} color={Colors.warning} />
+            <Text style={styles.warnText}>
+              This crop is not in the on-device scanner. The model only supports the 14 PlantVillage species in Browse.
+            </Text>
+          </View>
+        )}
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.iconContainer}>
@@ -171,6 +181,23 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: FontSizes.lg,
     color: Colors.error,
+  },
+  warnBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    backgroundColor: Colors.warning + '18',
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.warning + '55',
+  },
+  warnText: {
+    flex: 1,
+    fontSize: FontSizes.sm,
+    color: Colors.text,
+    lineHeight: FontSizes.sm * 1.35,
   },
   header: {
     alignItems: 'center',

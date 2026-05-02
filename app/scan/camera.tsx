@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,15 +7,22 @@ import {
   Image,
   Alert,
   ActivityIndicator,
+  PanResponder,
+  Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../../src/constants/theme';
 import { Button } from '../../src/components/ui';
 import { modelManager } from '../../src/ml';
 import { useDatabase } from '../../src/context';
+
+const DEFAULT_CROP_SIZE = 220;
+const MIN_CROP_SIZE = 120;
+const CROP_STEP = 30;
 
 export default function CameraScreen() {
   const router = useRouter();
@@ -25,6 +32,97 @@ export default function CameraScreen() {
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const cameraRef = useRef<CameraView>(null);
+
+  const [naturalSize, setNaturalSize] = useState({ w: 0, h: 0 });
+  const [layoutSize, setLayoutSize] = useState({ w: 0, h: 0 });
+  const [cropSize, setCropSize] = useState(DEFAULT_CROP_SIZE);
+
+  const pan = useRef(new Animated.ValueXY()).current;
+  const pos = useRef({ x: 0, y: 0 });
+  const gestureStart = useRef({ x: 0, y: 0 });
+  const displayArea = useRef({ ox: 0, oy: 0, dw: 0, dh: 0 });
+  const cropSizeRef = useRef(DEFAULT_CROP_SIZE);
+
+  useEffect(() => {
+    cropSizeRef.current = cropSize;
+  }, [cropSize]);
+
+  const computeDisplayArea = useCallback(() => {
+    if (!naturalSize.w || !layoutSize.w) return;
+    const sx = layoutSize.w / naturalSize.w;
+    const sy = layoutSize.h / naturalSize.h;
+    const s = Math.min(sx, sy);
+    const dw = naturalSize.w * s;
+    const dh = naturalSize.h * s;
+    const ox = (layoutSize.w - dw) / 2;
+    const oy = (layoutSize.h - dh) / 2;
+    displayArea.current = { ox, oy, dw, dh };
+    return { ox, oy, dw, dh };
+  }, [naturalSize, layoutSize]);
+
+  useEffect(() => {
+    const area = computeDisplayArea();
+    if (!area) return;
+
+    const maxSize = Math.min(area.dw, area.dh) - 20;
+    const size = Math.min(cropSizeRef.current, maxSize);
+    setCropSize(size);
+    cropSizeRef.current = size;
+
+    const cx = area.ox + (area.dw - size) / 2;
+    const cy = area.oy + (area.dh - size) / 2;
+    pos.current = { x: cx, y: cy };
+    pan.setValue({ x: cx, y: cy });
+  }, [naturalSize, layoutSize, computeDisplayArea, pan]);
+
+  const clamp = useCallback(
+    (x: number, y: number) => {
+      const { ox, oy, dw, dh } = displayArea.current;
+      const s = cropSizeRef.current;
+      return {
+        x: Math.max(ox, Math.min(x, ox + dw - s)),
+        y: Math.max(oy, Math.min(y, oy + dh - s)),
+      };
+    },
+    [],
+  );
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, { dx, dy }) =>
+        Math.abs(dx) > 2 || Math.abs(dy) > 2,
+      onPanResponderGrant: () => {
+        gestureStart.current = { ...pos.current };
+      },
+      onPanResponderMove: (_, { dx, dy }) => {
+        const { ox, oy, dw, dh } = displayArea.current;
+        const s = cropSizeRef.current;
+        const nx = Math.max(ox, Math.min(gestureStart.current.x + dx, ox + dw - s));
+        const ny = Math.max(oy, Math.min(gestureStart.current.y + dy, oy + dh - s));
+        pan.setValue({ x: nx, y: ny });
+      },
+      onPanResponderRelease: (_, { dx, dy }) => {
+        const { ox, oy, dw, dh } = displayArea.current;
+        const s = cropSizeRef.current;
+        const nx = Math.max(ox, Math.min(gestureStart.current.x + dx, ox + dw - s));
+        const ny = Math.max(oy, Math.min(gestureStart.current.y + dy, oy + dh - s));
+        pos.current = { x: nx, y: ny };
+      },
+    }),
+  ).current;
+
+  const adjustCropSize = (delta: number) => {
+    const { dw, dh } = displayArea.current;
+    const maxSize = Math.min(dw, dh) - 20;
+    const newSize = Math.max(MIN_CROP_SIZE, Math.min(cropSizeRef.current + delta, maxSize));
+    setCropSize(newSize);
+    cropSizeRef.current = newSize;
+
+    const clamped = clamp(pos.current.x, pos.current.y);
+    pos.current = clamped;
+    pan.setValue(clamped);
+  };
 
   if (!permission) {
     return (
@@ -50,11 +148,12 @@ export default function CameraScreen() {
   const takePicture = async () => {
     if (cameraRef.current) {
       try {
-        const photo = await cameraRef.current.takePictureAsync({
-          quality: 0.8,
-        });
+        const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
         if (photo) {
           setCapturedImage(photo.uri);
+          if (photo.width && photo.height) {
+            setNaturalSize({ w: photo.width, h: photo.height });
+          }
         }
       } catch (error) {
         console.error('Failed to take picture:', error);
@@ -67,30 +166,44 @@ export default function CameraScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       quality: 0.8,
-      allowsEditing: true,
-      aspect: [1, 1],
     });
 
     if (!result.canceled && result.assets[0]) {
-      setCapturedImage(result.assets[0].uri);
+      const asset = result.assets[0];
+      setCapturedImage(asset.uri);
+      if (asset.width && asset.height) {
+        setNaturalSize({ w: asset.width, h: asset.height });
+      }
     }
   };
 
-  const analyzeImage = async () => {
+  const cropAndAnalyze = async () => {
     if (!capturedImage) return;
 
     setIsAnalyzing(true);
     try {
-      const result = await modelManager.analyze(capturedImage);
+      const { ox, oy, dw } = displayArea.current;
+      const scale = naturalSize.w / dw;
 
-      // Check if we got valid predictions
+      const originX = Math.max(0, Math.round((pos.current.x - ox) * scale));
+      const originY = Math.max(0, Math.round((pos.current.y - oy) * scale));
+      const cropW = Math.min(Math.round(cropSize * scale), naturalSize.w - originX);
+      const cropH = Math.min(Math.round(cropSize * scale), naturalSize.h - originY);
+
+      const cropped = await ImageManipulator.manipulateAsync(
+        capturedImage,
+        [{ crop: { originX, originY, width: cropW, height: cropH } }],
+        { format: ImageManipulator.SaveFormat.JPEG, compress: 0.8 },
+      );
+
+      const result = await modelManager.analyze(cropped.uri);
+
       if (!result.cropPrediction || !result.diseasePrediction) {
         throw new Error('No predictions returned from model');
       }
 
-      // Save to scan history
       const savedScan = await db.addScanToHistory({
-        imageUri: capturedImage,
+        imageUri: cropped.uri,
         cropName: result.cropPrediction.className,
         diseaseName: result.diseasePrediction.className,
         cropConfidence: result.cropPrediction.confidence,
@@ -100,12 +213,11 @@ export default function CameraScreen() {
         scannedAt: new Date(),
       });
 
-      // Navigate to results with the analysis data
       router.replace({
         pathname: '/scan/results',
         params: {
           scanId: savedScan.id,
-          imageUri: capturedImage,
+          imageUri: cropped.uri,
           cropName: result.cropPrediction.className,
           cropConfidence: result.cropPrediction.confidence.toString(),
           diseaseName: result.diseasePrediction.className,
@@ -117,7 +229,12 @@ export default function CameraScreen() {
       });
     } catch (error) {
       console.error('Analysis failed:', error);
-      Alert.alert('Analysis Failed', error instanceof Error ? error.message : 'Failed to analyze the image. Please try again.');
+      Alert.alert(
+        'Analysis Failed',
+        error instanceof Error
+          ? error.message
+          : 'Failed to analyze the image. Please try again.',
+      );
     } finally {
       setIsAnalyzing(false);
     }
@@ -125,6 +242,9 @@ export default function CameraScreen() {
 
   const retake = () => {
     setCapturedImage(null);
+    setNaturalSize({ w: 0, h: 0 });
+    setLayoutSize({ w: 0, h: 0 });
+    setCropSize(DEFAULT_CROP_SIZE);
   };
 
   const toggleFacing = () => {
@@ -134,13 +254,58 @@ export default function CameraScreen() {
   if (capturedImage) {
     return (
       <View style={styles.container}>
-        <Image source={{ uri: capturedImage }} style={styles.preview} />
+        <View
+          style={styles.cropContainer}
+          onLayout={(e) => {
+            const { width, height } = e.nativeEvent.layout;
+            setLayoutSize({ w: width, h: height });
+          }}
+        >
+          <Image
+            source={{ uri: capturedImage }}
+            style={StyleSheet.absoluteFill}
+            resizeMode="contain"
+          />
 
-        <View style={styles.previewOverlay}>
-          <Text style={styles.previewTitle}>Preview</Text>
-          <Text style={styles.previewSubtitle}>
-            Make sure the leaf is clearly visible
-          </Text>
+          <Animated.View
+            style={[
+              styles.cropBox,
+              {
+                width: cropSize,
+                height: cropSize,
+                transform: [{ translateX: pan.x }, { translateY: pan.y }],
+              },
+            ]}
+            {...panResponder.panHandlers}
+          >
+            <View style={[styles.cropCorner, styles.cTopLeft]} />
+            <View style={[styles.cropCorner, styles.cTopRight]} />
+            <View style={[styles.cropCorner, styles.cBottomLeft]} />
+            <View style={[styles.cropCorner, styles.cBottomRight]} />
+          </Animated.View>
+        </View>
+
+        <View style={styles.cropHeader}>
+          <View style={styles.cropHeaderRow}>
+            <Ionicons name="crop-outline" size={20} color={Colors.textLight} />
+            <Text style={styles.cropTitle}>Crop Image</Text>
+          </View>
+          <Text style={styles.cropSubtitle}>Drag the box to focus on the leaf</Text>
+        </View>
+
+        <View style={styles.sizeControls}>
+          <TouchableOpacity
+            style={styles.sizeButton}
+            onPress={() => adjustCropSize(-CROP_STEP)}
+          >
+            <Ionicons name="remove" size={22} color={Colors.textLight} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.sizeButton}
+            onPress={() => adjustCropSize(CROP_STEP)}
+          >
+            <Ionicons name="add" size={22} color={Colors.textLight} />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.previewActions}>
@@ -152,8 +317,8 @@ export default function CameraScreen() {
             disabled={isAnalyzing}
           />
           <Button
-            title={isAnalyzing ? 'Analyzing...' : 'Analyze'}
-            onPress={analyzeImage}
+            title={isAnalyzing ? 'Analyzing...' : 'Crop & Analyze'}
+            onPress={cropAndAnalyze}
             loading={isAnalyzing}
             style={styles.actionButton}
           />
@@ -311,29 +476,91 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: Colors.text,
   },
-  preview: {
+  cropContainer: {
     flex: 1,
-    resizeMode: 'cover',
   },
-  previewOverlay: {
+  cropBox: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.85)',
+  },
+  cropCorner: {
+    position: 'absolute',
+    width: 24,
+    height: 24,
+    borderColor: Colors.primary,
+  },
+  cTopLeft: {
+    top: -2,
+    left: -2,
+    borderTopWidth: 4,
+    borderLeftWidth: 4,
+    borderTopLeftRadius: 4,
+  },
+  cTopRight: {
+    top: -2,
+    right: -2,
+    borderTopWidth: 4,
+    borderRightWidth: 4,
+    borderTopRightRadius: 4,
+  },
+  cBottomLeft: {
+    bottom: -2,
+    left: -2,
+    borderBottomWidth: 4,
+    borderLeftWidth: 4,
+    borderBottomLeftRadius: 4,
+  },
+  cBottomRight: {
+    bottom: -2,
+    right: -2,
+    borderBottomWidth: 4,
+    borderRightWidth: 4,
+    borderBottomRightRadius: 4,
+  },
+  cropHeader: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    padding: Spacing.xl,
     paddingTop: Spacing.xxl,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
   },
-  previewTitle: {
+  cropHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  cropTitle: {
     fontSize: FontSizes.xl,
     fontWeight: '600',
     color: Colors.textLight,
   },
-  previewSubtitle: {
-    fontSize: FontSizes.md,
+  cropSubtitle: {
+    fontSize: FontSizes.sm,
     color: Colors.textLight,
-    opacity: 0.8,
-    marginTop: Spacing.xs,
+    opacity: 0.75,
+    marginTop: 2,
+  },
+  sizeControls: {
+    position: 'absolute',
+    right: Spacing.md,
+    top: '45%',
+    gap: Spacing.sm,
+  },
+  sizeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   previewActions: {
     position: 'absolute',
@@ -343,7 +570,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     padding: Spacing.lg,
     paddingBottom: Spacing.xxl,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
     gap: Spacing.md,
   },
   actionButton: {

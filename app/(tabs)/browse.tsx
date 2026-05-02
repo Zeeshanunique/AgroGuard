@@ -10,43 +10,39 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSizes, BorderRadius, Shadows } from '../../src/constants/theme';
-import { CROP_LABELS, DISEASE_LABELS } from '../../src/ml/labels';
+import {
+  CROP_LABELS,
+  DISEASE_LABELS,
+  PLANTVILLAGE_MODEL_SCOPE,
+  isPlantVillageCropIndex,
+} from '../../src/ml/labels';
 
-// Count disease classes per crop from PlantVillage dataset
 const diseaseCountByCrop: { [cropIndex: number]: number } = {};
 Object.values(DISEASE_LABELS).forEach(d => {
   diseaseCountByCrop[d.cropIndex] = (diseaseCountByCrop[d.cropIndex] || 0) + 1;
 });
 
 const crops = Object.entries(CROP_LABELS)
+  .filter(([id]) => isPlantVillageCropIndex(parseInt(id, 10)))
   .map(([id, crop]) => ({
     id,
     ...crop,
-    diseaseCount: diseaseCountByCrop[parseInt(id)] || 0,
-    isSupported: (diseaseCountByCrop[parseInt(id)] || 0) > 0,
+    diseaseCount: diseaseCountByCrop[parseInt(id, 10)] || 0,
   }))
-  // Sort: supported crops first (by disease count desc), then unsupported alphabetically
-  .sort((a, b) => {
-    if (a.isSupported && !b.isSupported) return -1;
-    if (!a.isSupported && b.isSupported) return 1;
-    if (a.isSupported && b.isSupported) return b.diseaseCount - a.diseaseCount;
-    return a.name.localeCompare(b.name);
-  });
+  .sort((a, b) => b.diseaseCount - a.diseaseCount || a.name.localeCompare(b.name));
 
-const categories = ['All', 'Supported', ...new Set(crops.map((c) => c.category))];
+const categories = ['All', ...new Set(crops.map(c => c.category))];
 
 export default function BrowseScreen() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
 
-  const filteredCrops = crops.filter((crop) => {
+  const filteredCrops = crops.filter(crop => {
     const matchesSearch =
       crop.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       crop.scientificName.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory =
-      selectedCategory === 'All' ||
-      (selectedCategory === 'Supported' ? crop.isSupported : crop.category === selectedCategory);
+    const matchesCategory = selectedCategory === 'All' || crop.category === selectedCategory;
     return matchesSearch && matchesCategory;
   });
 
@@ -56,83 +52,83 @@ export default function BrowseScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color={Colors.textSecondary} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search crops..."
-          placeholderTextColor={Colors.textSecondary}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-        {searchQuery.length > 0 && (
-          <TouchableOpacity onPress={() => setSearchQuery('')}>
-            <Ionicons name="close-circle" size={20} color={Colors.textSecondary} />
-          </TouchableOpacity>
-        )}
+      <View style={styles.hintBanner}>
+        <Ionicons name="information-circle-outline" size={18} color={Colors.primary} />
+        <Text style={styles.hintText}>
+          {PLANTVILLAGE_MODEL_SCOPE} Tap a crop for disease classes.
+        </Text>
       </View>
 
-      {/* Category Filter */}
-      <FlatList
-        horizontal
-        data={categories}
-        keyExtractor={(item) => item}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.categoriesContainer}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={[
-              styles.categoryChip,
-              selectedCategory === item && styles.categoryChipActive,
-            ]}
-            onPress={() => setSelectedCategory(item)}
-          >
-            <Text
-              style={[
-                styles.categoryText,
-                selectedCategory === item && styles.categoryTextActive,
-              ]}
-            >
-              {item}
-            </Text>
-          </TouchableOpacity>
-        )}
-      />
+      <View style={styles.controlsCard}>
+        <View style={styles.searchRow}>
+          <Ionicons name="search" size={20} color={Colors.textSecondary} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search crops..."
+            placeholderTextColor={Colors.textSecondary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={8}>
+              <Ionicons name="close-circle" size={22} color={Colors.textSecondary} />
+            </TouchableOpacity>
+          )}
+        </View>
 
-      {/* Crops List */}
+        <Text style={styles.filterLabel}>Category</Text>
+        <View style={styles.chipsWrap}>
+          {categories.map(item => (
+            <TouchableOpacity
+              key={item}
+              style={[
+                styles.categoryChip,
+                selectedCategory === item && styles.categoryChipActive,
+              ]}
+              onPress={() => setSelectedCategory(item)}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[
+                  styles.categoryText,
+                  selectedCategory === item && styles.categoryTextActive,
+                ]}
+              >
+                {item}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
       <FlatList
         data={filteredCrops}
-        keyExtractor={(item) => item.id}
+        keyExtractor={item => item.id}
         contentContainerStyle={styles.listContainer}
         showsVerticalScrollIndicator={false}
         numColumns={2}
         columnWrapperStyle={styles.row}
         renderItem={({ item }) => (
           <TouchableOpacity
-            style={[styles.cropCard, item.isSupported && styles.supportedCard]}
+            style={styles.cropCard}
             onPress={() => handleCropPress(item.id)}
             activeOpacity={0.7}
           >
-            {item.isSupported && (
-              <View style={styles.supportedBadge}>
-                <Ionicons name="checkmark-circle" size={12} color={Colors.textLight} />
-                <Text style={styles.supportedBadgeText}>
-                  {item.diseaseCount} {item.diseaseCount === 1 ? 'class' : 'classes'}
-                </Text>
-              </View>
-            )}
-            <View style={[styles.cropIconContainer, item.isSupported && styles.supportedIcon]}>
-              <Ionicons name="leaf" size={32} color={item.isSupported ? Colors.primary : Colors.textSecondary} />
+            <View style={styles.modelBadge}>
+              <Ionicons name="hardware-chip" size={11} color={Colors.textLight} />
+              <Text style={styles.modelBadgeText}>
+                {item.diseaseCount} {item.diseaseCount === 1 ? 'class' : 'classes'}
+              </Text>
+            </View>
+            <View style={styles.cropIconContainer}>
+              <Ionicons name="leaf" size={32} color={Colors.primary} />
             </View>
             <Text style={styles.cropName}>{item.name}</Text>
             <Text style={styles.cropScientific} numberOfLines={1}>
               {item.scientificName}
             </Text>
-            <View style={[styles.categoryBadge, !item.isSupported && styles.unsupportedBadge]}>
-              <Text style={[styles.categoryBadgeText, !item.isSupported && styles.unsupportedBadgeText]}>
-                {item.category}
-              </Text>
+            <View style={styles.categoryBadge}>
+              <Text style={styles.categoryBadgeText}>{item.category}</Text>
             </View>
           </TouchableOpacity>
         )}
@@ -152,14 +148,40 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
-  searchContainer: {
+  hintBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
+    backgroundColor: Colors.primaryLight + '18',
+    marginHorizontal: Spacing.md,
+    marginTop: Spacing.sm,
+    padding: Spacing.sm + 2,
+    borderRadius: BorderRadius.md,
+  },
+  hintText: {
+    flex: 1,
+    fontSize: FontSizes.xs,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+  },
+  controlsCard: {
+    backgroundColor: Colors.surface,
+    marginHorizontal: Spacing.md,
+    marginTop: Spacing.md,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: Colors.border + '80',
+    ...Shadows.sm,
+  },
+  searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.surface,
-    margin: Spacing.md,
+    backgroundColor: Colors.background,
     paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.lg,
-    ...Shadows.sm,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   searchInput: {
     flex: 1,
@@ -167,20 +189,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm,
     fontSize: FontSizes.md,
     color: Colors.text,
+    minHeight: 44,
   },
-  categoriesContainer: {
-    paddingHorizontal: Spacing.md,
-    paddingBottom: Spacing.sm,
+  filterLabel: {
+    fontSize: FontSizes.xs,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.sm,
+    letterSpacing: 0.4,
+  },
+  chipsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: Spacing.sm,
   },
   categoryChip: {
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs + 2,
     borderRadius: BorderRadius.full,
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.background,
     borderWidth: 1,
     borderColor: Colors.border,
-    marginRight: Spacing.sm,
   },
   categoryChipActive: {
     backgroundColor: Colors.primary,
@@ -196,7 +226,7 @@ const styles = StyleSheet.create({
   },
   listContainer: {
     padding: Spacing.md,
-    paddingTop: Spacing.sm,
+    paddingTop: Spacing.md,
   },
   row: {
     justifyContent: 'space-between',
@@ -208,13 +238,11 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     padding: Spacing.md,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.primary + '25',
     ...Shadows.sm,
   },
-  supportedCard: {
-    borderWidth: 1,
-    borderColor: Colors.primary + '30',
-  },
-  supportedBadge: {
+  modelBadge: {
     position: 'absolute',
     top: Spacing.xs,
     right: Spacing.xs,
@@ -226,7 +254,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.sm,
     gap: 3,
   },
-  supportedBadgeText: {
+  modelBadgeText: {
     fontSize: 9,
     color: Colors.textLight,
     fontWeight: '700',
@@ -235,13 +263,10 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: Colors.primaryLight + '20',
+    backgroundColor: Colors.primaryLight + '30',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: Spacing.sm,
-  },
-  supportedIcon: {
-    backgroundColor: Colors.primaryLight + '30',
   },
   cropName: {
     fontSize: FontSizes.md,
@@ -267,12 +292,6 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.xs,
     color: Colors.primary,
     fontWeight: '500',
-  },
-  unsupportedBadge: {
-    backgroundColor: Colors.textSecondary + '15',
-  },
-  unsupportedBadgeText: {
-    color: Colors.textSecondary,
   },
   emptyContainer: {
     flex: 1,

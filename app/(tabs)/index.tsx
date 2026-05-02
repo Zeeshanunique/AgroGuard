@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSizes, BorderRadius, Shadows } from '../../src/constants/theme';
 import { Card } from '../../src/components/ui';
 import { useModel } from '../../src/context';
+import { PLANTVILLAGE_MODEL_SCOPE, NUM_PLANTVILLAGE_CROPS } from '../../src/ml/labels';
 
 export default function ScanScreen() {
   const router = useRouter();
@@ -30,7 +31,7 @@ export default function ScanScreen() {
         </View>
         <Text style={styles.heroTitle}>Plant Disease Detection</Text>
         <Text style={styles.heroSubtitle}>
-          Scan a leaf to identify the crop and detect diseases instantly with Gemini AI
+          {PLANTVILLAGE_MODEL_SCOPE} See Browse for the list. Photos of other plants will not be reliable.
         </Text>
       </View>
 
@@ -44,7 +45,7 @@ export default function ScanScreen() {
         <View style={styles.scanButtonInner}>
           <Ionicons name="camera" size={48} color={Colors.textLight} />
           <Text style={styles.scanButtonText}>
-            {isLoading ? 'Connecting...' : 'Scan Leaf'}
+            {isLoading ? 'Loading model...' : 'Scan Leaf'}
           </Text>
         </View>
       </TouchableOpacity>
@@ -52,7 +53,7 @@ export default function ScanScreen() {
       {error && (
         <Card style={styles.errorCard}>
           <Text style={styles.errorText}>
-            Failed to connect to Gemini AI. Check your internet and API key.
+            Failed to load the on-device model. Rebuild the dev client (native ONNX required).
           </Text>
         </Card>
       )}
@@ -61,9 +62,9 @@ export default function ScanScreen() {
       <Text style={styles.sectionTitle}>Features</Text>
       <View style={styles.features}>
         <FeatureCard
-          icon="sparkles"
-          title="Gemini AI"
-          description="Powered by Google"
+          icon="hardware-chip"
+          title="On-device ML"
+          description="ONNX MobileNetV2"
         />
         <FeatureCard
           icon="flash"
@@ -77,8 +78,8 @@ export default function ScanScreen() {
         />
         <FeatureCard
           icon="leaf"
-          title="50+ Crops"
-          description="Wide coverage"
+          title={`${NUM_PLANTVILLAGE_CROPS} crops`}
+          description="PlantVillage species"
         />
       </View>
 
@@ -88,6 +89,7 @@ export default function ScanScreen() {
         <TipItem icon="sunny" text="Ensure good lighting on the leaf" />
         <TipItem icon="locate" text="Focus on a single leaf" />
         <TipItem icon="resize" text="Fill the frame with the leaf" />
+        <TipItem icon="list" text="Use only for apple, tomato, potato, grape, and the other 10 Browse crops" />
         <TipItem icon="camera" text="Keep the camera steady" />
       </Card>
     </ScrollView>

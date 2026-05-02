@@ -1,6 +1,17 @@
 // PlantVillage dataset labels - 38 classes covering 14 crop species
 // This includes both healthy and diseased states
 
+/** Highest crop index that has model classes (0–13 = 14 species). Not universal worldwide—benchmark subset. */
+export const PLANTVILLAGE_CROP_INDEX_MAX = 13;
+export const NUM_PLANTVILLAGE_CROPS = PLANTVILLAGE_CROP_INDEX_MAX + 1;
+
+/** Shared copy: scanner and Browse list the same species. */
+export const PLANTVILLAGE_MODEL_SCOPE = `The on-device model supports ${NUM_PLANTVILLAGE_CROPS} PlantVillage species only—not every crop or region.`;
+
+export function isPlantVillageCropIndex(cropIndex: number): boolean {
+  return Number.isInteger(cropIndex) && cropIndex >= 0 && cropIndex <= PLANTVILLAGE_CROP_INDEX_MAX;
+}
+
 export const CROP_LABELS: { [key: number]: { name: string; scientificName: string; category: string } } = {
   0: { name: 'Apple', scientificName: 'Malus domestica', category: 'Fruit' },
   1: { name: 'Blueberry', scientificName: 'Vaccinium corymbosum', category: 'Fruit' },
@@ -55,46 +66,50 @@ export const CROP_LABELS: { [key: number]: { name: string; scientificName: strin
   49: { name: 'Avocado', scientificName: 'Persea americana', category: 'Fruit' },
 };
 
-// PlantVillage disease labels - maps to model output classes
+/**
+ * Class index must match the model’s training label order (logits[i] → this row).
+ * Use TensorFlow Datasets `plant_village` ClassLabel `names` (canonical for this dataset).
+ * @see https://github.com/tensorflow/datasets/blob/master/tensorflow_datasets/datasets/plant_village/plant_village_dataset_builder.py
+ */
 export const DISEASE_LABELS: { [key: number]: { name: string; cropIndex: number; isHealthy: boolean; severity: string } } = {
   0: { name: 'Apple Scab', cropIndex: 0, isHealthy: false, severity: 'medium' },
   1: { name: 'Apple Black Rot', cropIndex: 0, isHealthy: false, severity: 'high' },
   2: { name: 'Apple Cedar Rust', cropIndex: 0, isHealthy: false, severity: 'medium' },
   3: { name: 'Apple Healthy', cropIndex: 0, isHealthy: true, severity: 'none' },
   4: { name: 'Blueberry Healthy', cropIndex: 1, isHealthy: true, severity: 'none' },
-  5: { name: 'Cherry Powdery Mildew', cropIndex: 2, isHealthy: false, severity: 'medium' },
-  6: { name: 'Cherry Healthy', cropIndex: 2, isHealthy: true, severity: 'none' },
+  5: { name: 'Cherry Healthy', cropIndex: 2, isHealthy: true, severity: 'none' },
+  6: { name: 'Cherry Powdery Mildew', cropIndex: 2, isHealthy: false, severity: 'medium' },
   7: { name: 'Corn Cercospora Leaf Spot', cropIndex: 3, isHealthy: false, severity: 'medium' },
   8: { name: 'Corn Common Rust', cropIndex: 3, isHealthy: false, severity: 'medium' },
-  9: { name: 'Corn Northern Leaf Blight', cropIndex: 3, isHealthy: false, severity: 'high' },
-  10: { name: 'Corn Healthy', cropIndex: 3, isHealthy: true, severity: 'none' },
+  9: { name: 'Corn Healthy', cropIndex: 3, isHealthy: true, severity: 'none' },
+  10: { name: 'Corn Northern Leaf Blight', cropIndex: 3, isHealthy: false, severity: 'high' },
   11: { name: 'Grape Black Rot', cropIndex: 4, isHealthy: false, severity: 'high' },
   12: { name: 'Grape Esca (Black Measles)', cropIndex: 4, isHealthy: false, severity: 'high' },
-  13: { name: 'Grape Leaf Blight', cropIndex: 4, isHealthy: false, severity: 'medium' },
-  14: { name: 'Grape Healthy', cropIndex: 4, isHealthy: true, severity: 'none' },
+  13: { name: 'Grape Healthy', cropIndex: 4, isHealthy: true, severity: 'none' },
+  14: { name: 'Grape Leaf Blight', cropIndex: 4, isHealthy: false, severity: 'medium' },
   15: { name: 'Orange Citrus Greening', cropIndex: 5, isHealthy: false, severity: 'critical' },
   16: { name: 'Peach Bacterial Spot', cropIndex: 6, isHealthy: false, severity: 'medium' },
   17: { name: 'Peach Healthy', cropIndex: 6, isHealthy: true, severity: 'none' },
   18: { name: 'Bell Pepper Bacterial Spot', cropIndex: 7, isHealthy: false, severity: 'medium' },
   19: { name: 'Bell Pepper Healthy', cropIndex: 7, isHealthy: true, severity: 'none' },
   20: { name: 'Potato Early Blight', cropIndex: 8, isHealthy: false, severity: 'medium' },
-  21: { name: 'Potato Late Blight', cropIndex: 8, isHealthy: false, severity: 'critical' },
-  22: { name: 'Potato Healthy', cropIndex: 8, isHealthy: true, severity: 'none' },
+  21: { name: 'Potato Healthy', cropIndex: 8, isHealthy: true, severity: 'none' },
+  22: { name: 'Potato Late Blight', cropIndex: 8, isHealthy: false, severity: 'critical' },
   23: { name: 'Raspberry Healthy', cropIndex: 9, isHealthy: true, severity: 'none' },
   24: { name: 'Soybean Healthy', cropIndex: 10, isHealthy: true, severity: 'none' },
   25: { name: 'Squash Powdery Mildew', cropIndex: 11, isHealthy: false, severity: 'medium' },
-  26: { name: 'Strawberry Leaf Scorch', cropIndex: 12, isHealthy: false, severity: 'medium' },
-  27: { name: 'Strawberry Healthy', cropIndex: 12, isHealthy: true, severity: 'none' },
+  26: { name: 'Strawberry Healthy', cropIndex: 12, isHealthy: true, severity: 'none' },
+  27: { name: 'Strawberry Leaf Scorch', cropIndex: 12, isHealthy: false, severity: 'medium' },
   28: { name: 'Tomato Bacterial Spot', cropIndex: 13, isHealthy: false, severity: 'medium' },
   29: { name: 'Tomato Early Blight', cropIndex: 13, isHealthy: false, severity: 'medium' },
-  30: { name: 'Tomato Late Blight', cropIndex: 13, isHealthy: false, severity: 'critical' },
-  31: { name: 'Tomato Leaf Mold', cropIndex: 13, isHealthy: false, severity: 'medium' },
-  32: { name: 'Tomato Septoria Leaf Spot', cropIndex: 13, isHealthy: false, severity: 'medium' },
-  33: { name: 'Tomato Spider Mites', cropIndex: 13, isHealthy: false, severity: 'medium' },
-  34: { name: 'Tomato Target Spot', cropIndex: 13, isHealthy: false, severity: 'medium' },
-  35: { name: 'Tomato Yellow Leaf Curl Virus', cropIndex: 13, isHealthy: false, severity: 'high' },
+  30: { name: 'Tomato Healthy', cropIndex: 13, isHealthy: true, severity: 'none' },
+  31: { name: 'Tomato Late Blight', cropIndex: 13, isHealthy: false, severity: 'critical' },
+  32: { name: 'Tomato Leaf Mold', cropIndex: 13, isHealthy: false, severity: 'medium' },
+  33: { name: 'Tomato Septoria Leaf Spot', cropIndex: 13, isHealthy: false, severity: 'medium' },
+  34: { name: 'Tomato Spider Mites', cropIndex: 13, isHealthy: false, severity: 'medium' },
+  35: { name: 'Tomato Target Spot', cropIndex: 13, isHealthy: false, severity: 'medium' },
   36: { name: 'Tomato Mosaic Virus', cropIndex: 13, isHealthy: false, severity: 'high' },
-  37: { name: 'Tomato Healthy', cropIndex: 13, isHealthy: true, severity: 'none' },
+  37: { name: 'Tomato Yellow Leaf Curl Virus', cropIndex: 13, isHealthy: false, severity: 'high' },
 };
 
 export function getCropLabel(classId: number): { name: string; scientificName: string; category: string } | undefined {

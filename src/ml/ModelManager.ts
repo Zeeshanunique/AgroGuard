@@ -1,83 +1,69 @@
+import { InferenceSession, Tensor } from 'onnxruntime-react-native';
 import * as ImageManipulator from 'expo-image-manipulator';
-import * as FileSystem from 'expo-file-system';
-import { GoogleGenAI } from '@google/genai';
-import { GEMINI_CONFIG } from '../constants/config';
+import { Asset } from 'expo-asset';
+import { Image } from 'react-native';
+import { decode as decodeJpeg } from 'jpeg-js';
+import { ML_CONFIG } from '../constants/config';
 import {
   CropPrediction,
   DiseasePrediction,
   AnalysisResult,
   ModelInfo,
 } from './types';
-import { CROP_LABELS, DISEASE_LABELS } from './labels';
+import { CROP_LABELS, DISEASE_LABELS, NUM_DISEASE_CLASSES } from './labels';
 
-const SYSTEM_PROMPT = `You are an expert plant pathologist. Analyze the provided leaf/plant image and identify:
-1. The crop species
-2. Any diseases present (or confirm it's healthy)
+const MODEL_MODULE = require('../../assets/models/plant_disease.onnx');
 
-Respond ONLY with valid JSON in this exact format:
-{
-  "crop": {
-    "name": "string (common name, e.g. Tomato, Apple, Corn)",
-    "scientificName": "string (e.g. Solanum lycopersicum)",
-    "category": "string (Fruit, Vegetable, Grain, Legume, etc.)",
-    "confidence": number (0.0 to 1.0)
-  },
-  "disease": {
-    "name": "string (disease name, or 'Healthy' if no disease)",
-    "isHealthy": boolean,
-    "severity": "string (none, low, medium, high, critical)",
-    "confidence": number (0.0 to 1.0)
-  },
-  "alternativeDiseases": [
-    {
-      "name": "string",
-      "isHealthy": boolean,
-      "severity": "string",
-      "confidence": number
-    }
-  ]
+const INPUT_NAME = 'pixel_values';
+const OUTPUT_NAME = 'logits';
+const SIZE = ML_CONFIG.INPUT_SIZE;
+const SHORTEST = ML_CONFIG.RESIZE_SHORTEST_EDGE;
+
+function getImageDimensions(uri: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    Image.getSize(uri, (width, height) => resolve({ width, height }), reject);
+  });
 }
 
-Known crops: Apple, Blueberry, Cherry, Corn (Maize), Grape, Orange, Peach, Bell Pepper, Potato, Raspberry, Soybean, Squash, Strawberry, Tomato, Wheat, Rice, Cotton, Sugarcane, Coffee, Tea, Banana, Mango, and others.
+function base64ToUint8Array(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
 
-Known diseases include: Apple Scab, Apple Black Rot, Apple Cedar Rust, Cherry Powdery Mildew, Corn Cercospora Leaf Spot, Corn Common Rust, Corn Northern Leaf Blight, Grape Black Rot, Grape Esca, Grape Leaf Blight, Orange Citrus Greening, Peach Bacterial Spot, Bell Pepper Bacterial Spot, Potato Early Blight, Potato Late Blight, Squash Powdery Mildew, Strawberry Leaf Scorch, Tomato Bacterial Spot, Tomato Early Blight, Tomato Late Blight, Tomato Leaf Mold, Tomato Septoria Leaf Spot, Tomato Spider Mites, Tomato Target Spot, Tomato Yellow Leaf Curl Virus, Tomato Mosaic Virus, and others.
+function softmax(logits: Float32Array): Float32Array {
+  let max = -Infinity;
+  for (let i = 0; i < logits.length; i++) max = Math.max(max, logits[i]);
+  let sum = 0;
+  const out = new Float32Array(logits.length);
+  for (let i = 0; i < logits.length; i++) {
+    out[i] = Math.exp(logits[i] - max);
+    sum += out[i];
+  }
+  for (let i = 0; i < logits.length; i++) out[i] /= sum;
+  return out;
+}
 
-If the image is not a plant/leaf, set crop name to "Unknown" with low confidence and disease to "Not a plant image".
-Always provide confidence scores between 0.0 and 1.0.
-Include 1-3 alternative disease possibilities in alternativeDiseases.`;
-
-interface GeminiResponse {
-  crop: {
-    name: string;
-    scientificName: string;
-    category: string;
-    confidence: number;
-  };
-  disease: {
-    name: string;
-    isHealthy: boolean;
-    severity: string;
-    confidence: number;
-  };
-  alternativeDiseases: Array<{
-    name: string;
-    isHealthy: boolean;
-    severity: string;
-    confidence: number;
-  }>;
+function topK(probs: Float32Array, k: number): { index: number; prob: number }[] {
+  const idx: { i: number; p: number }[] = [];
+  for (let i = 0; i < probs.length; i++) idx.push({ i, p: probs[i] });
+  idx.sort((a, b) => b.p - a.p);
+  return idx.slice(0, k).map(({ i, p }) => ({ index: i, prob: p }));
 }
 
 class ModelManager {
   private static instance: ModelManager;
+  private session: InferenceSession | null = null;
   private isInitialized: boolean = false;
   private isLoading: boolean = false;
-  private ai: GoogleGenAI | null = null;
 
   private modelInfo: ModelInfo = {
-    name: 'gemini-2.5-flash',
-    version: '2.5',
-    inputSize: 0,
-    numClasses: 0,
+    name: 'MobileNetV2 PlantVillage',
+    version: '1.0',
+    inputSize: SIZE,
+    numClasses: NUM_DISEASE_CLASSES,
     loaded: false,
   };
 
@@ -94,23 +80,16 @@ class ModelManager {
     if (this.isInitialized || this.isLoading) return;
 
     this.isLoading = true;
-    console.log('Initializing Gemini Flash...');
-
     try {
-      const apiKey = GEMINI_CONFIG.API_KEY;
-      if (!apiKey || apiKey === 'YOUR_GEMINI_API_KEY') {
-        throw new Error(
-          'Gemini API key not configured. Set your API key in src/constants/config.ts'
-        );
+      const asset = Asset.fromModule(MODEL_MODULE);
+      await asset.downloadAsync();
+      const uri = asset.localUri;
+      if (!uri) {
+        throw new Error('Could not resolve ONNX model asset path');
       }
-
-      this.ai = new GoogleGenAI({ apiKey });
+      this.session = await InferenceSession.create(uri);
       this.modelInfo.loaded = true;
       this.isInitialized = true;
-      console.log('Gemini Flash initialized successfully');
-    } catch (error) {
-      console.error('Failed to initialize Gemini:', error);
-      throw error;
     } finally {
       this.isLoading = false;
     }
@@ -122,170 +101,175 @@ class ModelManager {
 
   getModelInfo(): { crop: ModelInfo; disease: ModelInfo } {
     return {
-      crop: { ...this.modelInfo, name: 'Gemini Flash (Crop)' },
-      disease: { ...this.modelInfo, name: 'Gemini Flash (Disease)' },
+      crop: {
+        ...this.modelInfo,
+        name: `${this.modelInfo.name} (crop from disease)`,
+      },
+      disease: {
+        ...this.modelInfo,
+        name: `${this.modelInfo.name} (38-class head)`,
+      },
     };
   }
 
-  private async imageToBase64(uri: string): Promise<string> {
-    const processed = await ImageManipulator.manipulateAsync(
-      uri,
-      [{ resize: { width: 768, height: 768 } }],
-      { format: ImageManipulator.SaveFormat.JPEG, compress: 0.85, base64: true }
+  /**
+   * Match HuggingFace MobileNetV2FeatureExtractor: shortest_edge resize, center crop 224,
+   * then normalize (pixel/255 - 0.5) / 0.5 == (pixel - 127.5) / 127.5.
+   */
+  private async imageToTensor(imageUri: string): Promise<Float32Array> {
+    const { width: W, height: H } = await getImageDimensions(imageUri);
+
+    const resizeActions: ImageManipulator.Action[] =
+      W <= H
+        ? [{ resize: { width: SHORTEST } }]
+        : [{ resize: { height: SHORTEST } }];
+
+    const resized = await ImageManipulator.manipulateAsync(
+      imageUri,
+      resizeActions,
+      { format: ImageManipulator.SaveFormat.JPEG, compress: 1 }
     );
 
-    if (!processed.base64) {
-      throw new Error('Failed to get base64 from image');
+    const rw = resized.width;
+    const rh = resized.height;
+    if (rw < SIZE || rh < SIZE) {
+      const cover = await ImageManipulator.manipulateAsync(resized.uri, [{ resize: { width: SIZE, height: SIZE } }], {
+        format: ImageManipulator.SaveFormat.JPEG,
+        compress: 1,
+        base64: true,
+      });
+      return this.rgbImageToNchw(cover, SIZE, SIZE);
     }
 
-    return processed.base64;
+    const originX = Math.floor((rw - SIZE) / 2);
+    const originY = Math.floor((rh - SIZE) / 2);
+
+    const cropped = await ImageManipulator.manipulateAsync(
+      resized.uri,
+      [{ crop: { originX, originY, width: SIZE, height: SIZE } }],
+      { format: ImageManipulator.SaveFormat.JPEG, compress: 1, base64: true }
+    );
+
+    if (!cropped.base64) {
+      throw new Error('Image preprocessing failed (no base64 after crop)');
+    }
+
+    return this.rgbImageToNchw(cropped, SIZE, SIZE);
   }
 
-  private findCropId(cropName: string): number {
-    const normalized = cropName.toLowerCase();
-    for (const [id, label] of Object.entries(CROP_LABELS)) {
-      if (label.name.toLowerCase() === normalized) {
-        return parseInt(id);
+  /**
+   * Decode JPEG RGBA from expo-image-manipulator and build float32 NCHW tensor.
+   */
+  private rgbImageToNchw(
+    result: ImageManipulator.ImageResult,
+    width: number,
+    height: number
+  ): Float32Array {
+    if (!result.base64) {
+      throw new Error('Image preprocessing failed (no base64)');
+    }
+
+    const raw = decodeJpeg(base64ToUint8Array(result.base64), { useTArray: true });
+    if (raw.width !== width || raw.height !== height) {
+      throw new Error(`Expected ${width}x${height} decode, got ${raw.width}x${raw.height}`);
+    }
+
+    const { data } = raw;
+    const plane = width * height;
+    const tensor = new Float32Array(3 * plane);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const j = (y * width + x) << 2;
+        const r = data[j];
+        const g = data[j + 1];
+        const b = data[j + 2];
+        tensor[y * width + x] = (r - 127.5) / 127.5;
+        tensor[plane + y * width + x] = (g - 127.5) / 127.5;
+        tensor[2 * plane + y * width + x] = (b - 127.5) / 127.5;
       }
     }
-    for (const [id, label] of Object.entries(CROP_LABELS)) {
-      if (
-        label.name.toLowerCase().includes(normalized) ||
-        normalized.includes(label.name.toLowerCase())
-      ) {
-        return parseInt(id);
-      }
-    }
-    return -1;
+    return tensor;
   }
 
-  private findDiseaseId(diseaseName: string): number {
-    const normalized = diseaseName.toLowerCase();
-    for (const [id, label] of Object.entries(DISEASE_LABELS)) {
-      if (label.name.toLowerCase() === normalized) {
-        return parseInt(id);
-      }
-    }
-    for (const [id, label] of Object.entries(DISEASE_LABELS)) {
-      if (
-        label.name.toLowerCase().includes(normalized) ||
-        normalized.includes(label.name.toLowerCase())
-      ) {
-        return parseInt(id);
-      }
-    }
-    return -1;
+  private diseaseToCropPrediction(classId: number, confidence: number): CropPrediction {
+    const diseaseMeta = DISEASE_LABELS[classId];
+    const cropIdx = diseaseMeta.cropIndex;
+    const crop = CROP_LABELS[cropIdx];
+    return {
+      classId: cropIdx,
+      className: crop.name,
+      confidence,
+      scientificName: crop.scientificName,
+      category: crop.category,
+    };
   }
 
-  private parseGeminiResponse(text: string): GeminiResponse {
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('No JSON found in Gemini response');
-    }
-    return JSON.parse(jsonMatch[0]);
+  private buildDiseasePrediction(classId: number, confidence: number): DiseasePrediction {
+    const d = DISEASE_LABELS[classId];
+    const crop = CROP_LABELS[d.cropIndex];
+    return {
+      classId,
+      className: d.name,
+      confidence,
+      isHealthy: d.isHealthy,
+      severity: d.severity,
+      cropId: crop.name,
+    };
   }
 
   async analyze(imageUri: string): Promise<AnalysisResult> {
-    if (!this.isInitialized || !this.ai) {
+    if (!this.session) {
       await this.initialize();
     }
-
-    if (!this.ai) {
-      throw new Error('Gemini not initialized');
+    if (!this.session) {
+      throw new Error('ONNX session not available');
     }
 
-    const startTime = Date.now();
+    const start = Date.now();
+    const inputData = await this.imageToTensor(imageUri);
+    const inputTensor = new Tensor('float32', inputData, [1, 3, SIZE, SIZE]);
+    const feeds: Record<string, Tensor> = { [INPUT_NAME]: inputTensor };
+    const results = await this.session.run(feeds);
+    const outTensor = results[OUTPUT_NAME];
+    if (!outTensor?.data) {
+      throw new Error('Model output missing');
+    }
 
-    try {
-      console.log('Sending image to Gemini Flash for analysis...');
+    const logits = outTensor.data as Float32Array;
+    if (logits.length !== NUM_DISEASE_CLASSES) {
+      throw new Error(`Unexpected logits length ${logits.length}, expected ${NUM_DISEASE_CLASSES}`);
+    }
+    const probs = softmax(logits);
+    const top = topK(probs, ML_CONFIG.TOP_K_RESULTS);
 
-      const base64Image = await this.imageToBase64(imageUri);
+    const diseasePrediction = this.buildDiseasePrediction(top[0].index, top[0].prob);
+    const cropPrediction = this.diseaseToCropPrediction(top[0].index, top[0].prob);
 
-      const response = await this.ai.models.generateContent({
-        model: GEMINI_CONFIG.MODEL,
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              { text: SYSTEM_PROMPT },
-              {
-                inlineData: {
-                  mimeType: 'image/jpeg',
-                  data: base64Image,
-                },
-              },
-              { text: 'Analyze this plant/leaf image for diseases.' },
-            ],
-          },
-        ],
-        config: {
-          temperature: 0.1,
-          maxOutputTokens: 1024,
-        },
-      });
+    const topDiseasePredictions = top.map((t) => this.buildDiseasePrediction(t.index, t.prob));
 
-      const responseText = response.text || '';
-      console.log('Gemini response received');
-
-      const parsed = this.parseGeminiResponse(responseText);
-      const inferenceTime = Date.now() - startTime;
-
-      const cropId = this.findCropId(parsed.crop.name);
-      const cropLabel = cropId >= 0 ? CROP_LABELS[cropId] : null;
-
-      const topCrop: CropPrediction = {
-        classId: cropId >= 0 ? cropId : 999,
-        className: parsed.crop.name,
-        confidence: parsed.crop.confidence,
-        scientificName: cropLabel?.scientificName || parsed.crop.scientificName,
-        category: cropLabel?.category || parsed.crop.category,
-      };
-
-      const diseaseId = this.findDiseaseId(parsed.disease.name);
-      const diseaseLabel = diseaseId >= 0 ? DISEASE_LABELS[diseaseId] : null;
-
-      const topDisease: DiseasePrediction = {
-        classId: diseaseId >= 0 ? diseaseId : 999,
-        className: parsed.disease.name,
-        confidence: parsed.disease.confidence,
-        isHealthy: parsed.disease.isHealthy,
-        severity: diseaseLabel?.severity || parsed.disease.severity,
-        cropId: parsed.crop.name,
-      };
-
-      const topDiseasePredictions: DiseasePrediction[] = [topDisease];
-      if (parsed.alternativeDiseases) {
-        for (const alt of parsed.alternativeDiseases) {
-          const altId = this.findDiseaseId(alt.name);
-          const altLabel = altId >= 0 ? DISEASE_LABELS[altId] : null;
-          topDiseasePredictions.push({
-            classId: altId >= 0 ? altId : 999,
-            className: alt.name,
-            confidence: alt.confidence,
-            isHealthy: alt.isHealthy,
-            severity: altLabel?.severity || alt.severity,
-            cropId: parsed.crop.name,
-          });
-        }
+    const cropById = new Map<number, CropPrediction>();
+    for (const t of top) {
+      const cp = this.diseaseToCropPrediction(t.index, t.prob);
+      const prev = cropById.get(cp.classId);
+      if (!prev || cp.confidence > prev.confidence) {
+        cropById.set(cp.classId, cp);
       }
-
-      console.log(`Analysis completed in ${inferenceTime}ms`);
-      console.log(`  Crop: ${topCrop.className} (${(topCrop.confidence * 100).toFixed(1)}%)`);
-      console.log(`  Disease: ${topDisease.className} (${(topDisease.confidence * 100).toFixed(1)}%)`);
-
-      return {
-        cropPrediction: topCrop,
-        diseasePrediction: topDisease,
-        topCropPredictions: [topCrop],
-        topDiseasePredictions,
-        inferenceTimeMs: inferenceTime,
-        timestamp: new Date(),
-        imageUri,
-      };
-    } catch (error) {
-      console.error('Gemini analysis failed:', error);
-      throw error;
     }
+    const topCropPredictions = Array.from(cropById.values()).sort(
+      (a, b) => b.confidence - a.confidence
+    );
+
+    const inferenceTimeMs = Date.now() - start;
+
+    return {
+      cropPrediction,
+      diseasePrediction,
+      topCropPredictions,
+      topDiseasePredictions,
+      inferenceTimeMs,
+      timestamp: new Date(),
+      imageUri,
+    };
   }
 }
 

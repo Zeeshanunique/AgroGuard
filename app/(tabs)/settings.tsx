@@ -84,7 +84,7 @@ export default function SettingsScreen() {
           </View>
         </View>
         <Text style={styles.appDescription}>
-          Plant disease detection powered by Gemini Flash AI
+          Plant disease detection with on-device ONNX (PlantVillage MobileNetV2)
         </Text>
       </Card>
 
@@ -98,18 +98,18 @@ export default function SettingsScreen() {
             color={isReady ? Colors.success : Colors.warning}
           />
           <Text style={styles.statusText}>
-            {isReady ? 'Gemini Flash Ready' : 'Connecting...'}
+            {isReady ? 'ONNX model ready' : 'Loading model...'}
           </Text>
         </View>
         {modelInfo && (
           <View style={styles.modelInfo}>
             <View style={styles.modelItem}>
               <Text style={styles.modelLabel}>Model</Text>
-              <Text style={styles.modelValue}>Gemini 2.5 Flash</Text>
+              <Text style={styles.modelValue}>{modelInfo.disease.name}</Text>
             </View>
             <View style={styles.modelItem}>
               <Text style={styles.modelLabel}>Mode</Text>
-              <Text style={styles.modelValue}>Cloud API</Text>
+              <Text style={styles.modelValue}>On-device</Text>
             </View>
           </View>
         )}

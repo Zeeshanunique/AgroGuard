@@ -41,6 +41,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   plugins: [
     'expo-router',
+    'onnxruntime-react-native',
+    './plugins/withOnnxruntimePackage',
+    './plugins/withOnnxJniPickFirst',
     [
       'expo-camera',
       {

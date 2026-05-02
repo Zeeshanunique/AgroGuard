@@ -1,10 +1,8 @@
-export const GEMINI_CONFIG = {
-  API_KEY: process.env.EXPO_PUBLIC_API_KEY || 'YOUR_GEMINI_API_KEY',
-  MODEL: 'gemini-2.5-flash',
-};
-
 export const ML_CONFIG = {
-  INPUT_SIZE: 768,
+  /** Model input height/width after center crop (PlantVillage MobileNetV2). */
+  INPUT_SIZE: 224,
+  /** HuggingFace preprocessor: resize so shortest edge = this, then center-crop to INPUT_SIZE. */
+  RESIZE_SHORTEST_EDGE: 256,
   CONFIDENCE_THRESHOLD: 0.7,
   TOP_K_RESULTS: 3,
 };
