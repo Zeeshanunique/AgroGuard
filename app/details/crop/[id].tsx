@@ -1,31 +1,58 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  FlatList,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSizes, BorderRadius, Shadows } from '../../../src/constants/theme';
 import { Card } from '../../../src/components/ui';
 import { CROP_LABELS, DISEASE_LABELS, isPlantVillageCropIndex } from '../../../src/ml/labels';
+import { useDatabase } from '../../../src/context';
+
+type CropDiseaseRow = {
+  key: string;
+  name: string;
+  isHealthy: boolean;
+  severity: string;
+  source: 'ml' | 'seed';
+  mlClassId?: string;
+};
 
 export default function CropDetailScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
+  const db = useDatabase();
   const cropId = parseInt(id as string, 10);
   const crop = CROP_LABELS[cropId];
 
-  // Get diseases for this crop
-  const diseases = Object.entries(DISEASE_LABELS)
-    .filter(([_, disease]) => disease.cropIndex === cropId)
-    .map(([diseaseId, disease]) => ({
-      id: diseaseId,
-      ...disease,
+  const diseases = useMemo((): CropDiseaseRow[] => {
+    if (!crop) return [];
+    const mlRows: CropDiseaseRow[] = Object.entries(DISEASE_LABELS)
+      .filter(([_, disease]) => disease.cropIndex === cropId)
+      .map(([diseaseId, disease]) => ({
+        key: `ml-${diseaseId}`,
+        name: disease.name,
+        isHealthy: disease.isHealthy,
+        severity: disease.severity,
+        source: 'ml',
+        mlClassId: diseaseId,
+      }));
+    if (isPlantVillageCropIndex(cropId)) {
+      return mlRows;
+    }
+    const seedRows: CropDiseaseRow[] = db.getDiseasesForCrop(crop.name).map(d => ({
+      key: `seed-${d.name}`,
+      name: d.name,
+      isHealthy: d.isHealthy,
+      severity: d.severity,
+      source: 'seed',
     }));
+    return seedRows;
+  }, [crop, cropId, db]);
 
   if (!crop) {
     return (
@@ -37,8 +64,15 @@ export default function CropDetailScreen() {
 
   const inModel = isPlantVillageCropIndex(cropId);
 
-  const handleDiseasePress = (diseaseId: string) => {
-    router.push(`/details/disease/${diseaseId}`);
+  const handleDiseasePress = (row: CropDiseaseRow) => {
+    if (row.source === 'ml' && row.mlClassId != null) {
+      router.push(`/details/disease/${row.mlClassId}`);
+      return;
+    }
+    router.push({
+      pathname: '/details/disease/[id]',
+      params: { id: 'seed', cropName: crop.name, diseaseName: row.name },
+    });
   };
 
   return (
@@ -49,7 +83,7 @@ export default function CropDetailScreen() {
           <View style={styles.warnBanner}>
             <Ionicons name="warning-outline" size={20} color={Colors.warning} />
             <Text style={styles.warnText}>
-              This crop is not in the on-device scanner. The model only supports the 14 PlantVillage species in Browse.
+              This crop is not classified on-device. The scanner only supports the 14 PlantVillage species; Browse may list extra reference crops.
             </Text>
           </View>
         )}
@@ -93,10 +127,10 @@ export default function CropDetailScreen() {
 
         {/* Diseases */}
         <Text style={styles.sectionTitle}>Associated Conditions</Text>
-        {diseases.map((disease) => (
+        {diseases.map(row => (
           <TouchableOpacity
-            key={disease.id}
-            onPress={() => handleDiseasePress(disease.id)}
+            key={row.key}
+            onPress={() => handleDiseasePress(row)}
             activeOpacity={0.7}
           >
             <Card style={styles.diseaseCard}>
@@ -104,20 +138,20 @@ export default function CropDetailScreen() {
                 <View
                   style={[
                     styles.diseaseIcon,
-                    disease.isHealthy ? styles.healthyIcon : styles.diseasedIcon,
+                    row.isHealthy ? styles.healthyIcon : styles.diseasedIcon,
                   ]}
                 >
                   <Ionicons
-                    name={disease.isHealthy ? 'checkmark' : 'close'}
+                    name={row.isHealthy ? 'checkmark' : 'close'}
                     size={20}
-                    color={disease.isHealthy ? Colors.healthy : Colors.diseased}
+                    color={row.isHealthy ? Colors.healthy : Colors.diseased}
                   />
                 </View>
                 <View style={styles.diseaseInfo}>
-                  <Text style={styles.diseaseName}>{disease.name}</Text>
-                  {!disease.isHealthy && (
+                  <Text style={styles.diseaseName}>{row.name}</Text>
+                  {!row.isHealthy && (
                     <View style={styles.severityContainer}>
-                      <SeverityIndicator severity={disease.severity} />
+                      <SeverityIndicator severity={row.severity} />
                     </View>
                   )}
                 </View>

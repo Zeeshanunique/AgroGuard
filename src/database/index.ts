@@ -2,6 +2,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SEED_DATA, CropData, DiseaseData, TreatmentData } from './seed/treatmentData';
+import { CROP_LABELS } from '../ml/labels';
 
 const HISTORY_KEY = '@agroguard_scan_history';
 
@@ -62,7 +63,9 @@ export const database = {
   },
 
   getCropByIndex(index: number): CropData | undefined {
-    return crops[index];
+    const label = CROP_LABELS[index];
+    if (!label) return undefined;
+    return crops.find(c => c.name.toLowerCase() === label.name.toLowerCase());
   },
 
   // Diseases

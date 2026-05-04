@@ -14,20 +14,27 @@ import {
   CROP_LABELS,
   DISEASE_LABELS,
   PLANTVILLAGE_MODEL_SCOPE,
-  isPlantVillageCropIndex,
+  isBrowseCropIndex,
 } from '../../src/ml/labels';
+import { SEED_DATA } from '../../src/database/seed/treatmentData';
 
 const diseaseCountByCrop: { [cropIndex: number]: number } = {};
 Object.values(DISEASE_LABELS).forEach(d => {
   diseaseCountByCrop[d.cropIndex] = (diseaseCountByCrop[d.cropIndex] || 0) + 1;
 });
 
+const seedDiseaseCountByCropName: { [name: string]: number } = {};
+SEED_DATA.forEach(c => {
+  seedDiseaseCountByCropName[c.name] = c.diseases.length;
+});
+
 const crops = Object.entries(CROP_LABELS)
-  .filter(([id]) => isPlantVillageCropIndex(parseInt(id, 10)))
+  .filter(([id]) => isBrowseCropIndex(parseInt(id, 10)))
   .map(([id, crop]) => ({
     id,
     ...crop,
-    diseaseCount: diseaseCountByCrop[parseInt(id, 10)] || 0,
+    diseaseCount:
+      diseaseCountByCrop[parseInt(id, 10)] || seedDiseaseCountByCropName[crop.name] || 0,
   }))
   .sort((a, b) => b.diseaseCount - a.diseaseCount || a.name.localeCompare(b.name));
 
@@ -55,7 +62,7 @@ export default function BrowseScreen() {
       <View style={styles.hintBanner}>
         <Ionicons name="information-circle-outline" size={18} color={Colors.primary} />
         <Text style={styles.hintText}>
-          {PLANTVILLAGE_MODEL_SCOPE} Tap a crop for disease classes.
+          {PLANTVILLAGE_MODEL_SCOPE} All listed crops can be scanned on-device. Tap a crop to view diseases and treatments.
         </Text>
       </View>
 

@@ -14,37 +14,85 @@ import { DISEASE_LABELS, CROP_LABELS } from '../../../src/ml/labels';
 import { useDatabase } from '../../../src/context';
 
 export default function DiseaseDetailScreen() {
-  const { id } = useLocalSearchParams();
-  const diseaseId = parseInt(id as string, 10);
-  const disease = DISEASE_LABELS[diseaseId];
+  const params = useLocalSearchParams<{
+    id: string;
+    cropName?: string;
+    diseaseName?: string;
+  }>();
+  const rawId = params.id || '';
+  const cropNameParam = params.cropName;
+  const diseaseNameParam = params.diseaseName;
   const db = useDatabase();
   const [activeTab, setActiveTab] = useState<'organic' | 'chemical'>('organic');
 
-  if (!disease) {
-    return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>Disease not found</Text>
-      </View>
-    );
-  }
+  const isSeedRoute = rawId === 'seed';
 
-  const crop = CROP_LABELS[disease.cropIndex];
+  const seedDisease = useMemo(() => {
+    if (!isSeedRoute || !cropNameParam || !diseaseNameParam) return undefined;
+    return db.getDiseaseByName(cropNameParam, diseaseNameParam);
+  }, [isSeedRoute, cropNameParam, diseaseNameParam, db]);
 
-  // Get real treatments from database
+  const mlDisease = useMemo(() => {
+    if (isSeedRoute) return undefined;
+    const n = parseInt(rawId, 10);
+    if (Number.isNaN(n)) return undefined;
+    return DISEASE_LABELS[n];
+  }, [isSeedRoute, rawId]);
+
+  const disease = isSeedRoute
+    ? seedDisease
+      ? {
+          name: seedDisease.name,
+          isHealthy: seedDisease.isHealthy,
+          severity: String(seedDisease.severity),
+        }
+      : null
+    : mlDisease ?? null;
+
+  const crop = useMemo(() => {
+    if (isSeedRoute && cropNameParam) {
+      return (
+        Object.values(CROP_LABELS).find(
+          c => c.name.toLowerCase() === cropNameParam.toLowerCase(),
+        ) ?? { name: cropNameParam, scientificName: '', category: '' }
+      );
+    }
+    if (!mlDisease) return undefined;
+    return CROP_LABELS[mlDisease.cropIndex];
+  }, [isSeedRoute, cropNameParam, mlDisease]);
+
   const { organicTreatments, chemicalTreatments, diseaseInfo } = useMemo(() => {
+    if (isSeedRoute && seedDisease) {
+      const t = seedDisease.treatments;
+      return {
+        organicTreatments: t.filter(treat => treat.type === 'organic'),
+        chemicalTreatments: t.filter(treat => treat.type === 'chemical'),
+        diseaseInfo: seedDisease,
+      };
+    }
+    if (!mlDisease) {
+      return { organicTreatments: [], chemicalTreatments: [], diseaseInfo: undefined };
+    }
     const cropName = crop?.name || '';
-    const diseaseName = disease.name;
+    const diseaseName = mlDisease.name;
+    // ML labels are prefixed: "Pumpkin Healthy" → strip to "Healthy" for seed lookup
+    const shortName = diseaseName.startsWith(cropName + ' ')
+      ? diseaseName.slice(cropName.length + 1)
+      : diseaseName;
 
-    // Try exact match
-    let found = db.getDiseaseByName(cropName, diseaseName);
+    let found = db.getDiseaseByName(cropName, shortName) ?? db.getDiseaseByName(cropName, diseaseName);
     let allTreatments = found?.treatments || [];
 
-    // Fuzzy search if no match
-    if (allTreatments.length === 0 && !disease.isHealthy) {
-      const fuzzy = db.findDisease(diseaseName);
-      if (fuzzy) {
-        allTreatments = fuzzy.disease.treatments;
-        found = fuzzy.disease;
+    if (allTreatments.length === 0 && !mlDisease.isHealthy) {
+      // Scope fuzzy search to the correct crop to avoid cross-crop false matches
+      const cropDiseases = db.getDiseasesForCrop(cropName);
+      const fuzzyInCrop = cropDiseases.find(d =>
+        shortName.toLowerCase().includes(d.name.toLowerCase()) ||
+        d.name.toLowerCase().includes(shortName.toLowerCase())
+      );
+      if (fuzzyInCrop) {
+        allTreatments = fuzzyInCrop.treatments;
+        found = fuzzyInCrop;
       }
     }
 
@@ -53,7 +101,15 @@ export default function DiseaseDetailScreen() {
       chemicalTreatments: allTreatments.filter(t => t.type === 'chemical'),
       diseaseInfo: found,
     };
-  }, [disease, crop]);
+  }, [isSeedRoute, seedDisease, mlDisease, crop, db]);
+
+  if (!disease) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>Disease not found</Text>
+      </View>
+    );
+  }
 
   const treatments = activeTab === 'organic' ? organicTreatments : chemicalTreatments;
 

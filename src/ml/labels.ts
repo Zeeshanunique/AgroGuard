@@ -1,15 +1,24 @@
-// PlantVillage dataset labels - 38 classes covering 14 crop species
+// PlantVillage dataset labels - 43 classes covering 15 crop species (14 PlantVillage + Pumpkin)
 // This includes both healthy and diseased states
 
-/** Highest crop index that has model classes (0–13 = 14 species). Not universal worldwide—benchmark subset. */
+/** Highest crop index that has model classes (0–13 = 14 PlantVillage species). Not universal worldwide—benchmark subset. */
 export const PLANTVILLAGE_CROP_INDEX_MAX = 13;
-export const NUM_PLANTVILLAGE_CROPS = PLANTVILLAGE_CROP_INDEX_MAX + 1;
+export const PUMPKIN_CROP_INDEX = 37;
+export const NUM_PLANTVILLAGE_CROPS = PLANTVILLAGE_CROP_INDEX_MAX + 1 + 1; // 14 PlantVillage + Pumpkin = 15
 
 /** Shared copy: scanner and Browse list the same species. */
-export const PLANTVILLAGE_MODEL_SCOPE = `The on-device model supports ${NUM_PLANTVILLAGE_CROPS} PlantVillage species only—not every crop or region.`;
+export const PLANTVILLAGE_MODEL_SCOPE = `The on-device model supports ${NUM_PLANTVILLAGE_CROPS} crop species only—not every crop or region.`;
 
 export function isPlantVillageCropIndex(cropIndex: number): boolean {
-  return Number.isInteger(cropIndex) && cropIndex >= 0 && cropIndex <= PLANTVILLAGE_CROP_INDEX_MAX;
+  if (!Number.isInteger(cropIndex) || cropIndex < 0) return false;
+  return (cropIndex >= 0 && cropIndex <= PLANTVILLAGE_CROP_INDEX_MAX) || cropIndex === PUMPKIN_CROP_INDEX;
+}
+
+/** Scanner crops (0–13) plus reference-only entries shown in Browse (no logits). */
+const BROWSE_EXTRA_CROP_INDICES = new Set<number>([]); // Pumpkin moved to scannable set
+
+export function isBrowseCropIndex(cropIndex: number): boolean {
+  return isPlantVillageCropIndex(cropIndex) || BROWSE_EXTRA_CROP_INDICES.has(cropIndex);
 }
 
 export const CROP_LABELS: { [key: number]: { name: string; scientificName: string; category: string } } = {
@@ -110,6 +119,12 @@ export const DISEASE_LABELS: { [key: number]: { name: string; cropIndex: number;
   35: { name: 'Tomato Target Spot', cropIndex: 13, isHealthy: false, severity: 'medium' },
   36: { name: 'Tomato Mosaic Virus', cropIndex: 13, isHealthy: false, severity: 'high' },
   37: { name: 'Tomato Yellow Leaf Curl Virus', cropIndex: 13, isHealthy: false, severity: 'high' },
+
+  38: { name: 'Pumpkin Healthy', cropIndex: 37, isHealthy: true, severity: 'none' },
+  39: { name: 'Pumpkin Downy Mildew', cropIndex: 37, isHealthy: false, severity: 'high' },
+  40: { name: 'Pumpkin Powdery Mildew', cropIndex: 37, isHealthy: false, severity: 'medium' },
+  41: { name: 'Pumpkin Mosaic Disease', cropIndex: 37, isHealthy: false, severity: 'high' },
+  42: { name: 'Pumpkin Bacterial Leaf Spot', cropIndex: 37, isHealthy: false, severity: 'medium' },
 };
 
 export function getCropLabel(classId: number): { name: string; scientificName: string; category: string } | undefined {
