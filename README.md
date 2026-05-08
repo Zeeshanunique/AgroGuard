@@ -1,15 +1,15 @@
 # AgroGuard
 
-Plant disease detection mobile app powered by Google Gemini Flash AI. Identify crop diseases from leaf photos with high accuracy.
+Plant disease detection mobile app powered by an on-device vision-language model. Identify crop diseases from leaf photos — fully offline after the initial model download.
 
 ## Features
 
-- **Gemini Flash AI** -- Uses Google Gemini 2.5 Flash for accurate plant disease analysis
-- **Broad Coverage** -- Identifies diseases across 14+ crop species including Apple, Tomato, Corn, Grape, Potato, and more
-- **Camera & Gallery** -- Capture a leaf photo or pick from gallery for instant analysis
-- **Disease Details** -- View confidence scores, severity, and crop identification
-- **Scan History** -- Track past scans with local storage
-- **Treatment Info** -- Organic and chemical treatment recommendations
+- **On-Device AI** — Uses LFM2.5-VL-1.6B (react-native-executorch) running entirely on the device; no API key or internet required for analysis
+- **Broad Coverage** — Identifies diseases across 15 crop species including Apple, Tomato, Corn, Grape, Potato, Pumpkin, and more
+- **Camera & Gallery** — Capture a leaf photo or pick from gallery for instant analysis
+- **Disease Details** — View confidence scores, severity, and crop identification
+- **Scan History** — Track past scans with local storage
+- **Treatment Info** — Organic and chemical treatment recommendations
 
 ## Tech Stack
 
@@ -17,7 +17,7 @@ Plant disease detection mobile app powered by Google Gemini Flash AI. Identify c
 |-------|-----------|
 | Framework | React Native 0.81 + Expo SDK 54 |
 | Navigation | Expo Router 6 (file-based) |
-| AI Model | Google Gemini 2.5 Flash (@google/genai) |
+| AI Model | LFM2.5-VL-1.6B via react-native-executorch 0.8.4 |
 | Image Processing | expo-image-manipulator |
 | Storage | AsyncStorage |
 | Language | TypeScript 5.9 |
@@ -33,21 +33,20 @@ AgroGuard/
 │   │   ├── history.tsx         # Scan history
 │   │   └── settings.tsx        # App settings
 │   ├── scan/
-│   │   ├── camera.tsx          # Camera capture
+│   │   ├── camera.tsx          # Camera capture + VLM integration
 │   │   └── results.tsx         # Analysis results
 │   └── details/
 │       ├── crop/[id].tsx       # Crop detail page
 │       └── disease/[id].tsx    # Disease detail page
 ├── src/
 │   ├── ml/                     # AI integration
-│   │   ├── ModelManager.ts     # Gemini Flash API client
+│   │   ├── vlmParser.ts        # Parse raw VLM text → AnalysisResult
 │   │   ├── labels.ts           # Crop & disease label mappings
 │   │   └── types.ts            # Type definitions
 │   ├── components/ui/          # Reusable UI components
-│   ├── constants/              # App & Gemini config
+│   ├── constants/              # App config
 │   ├── context/                # React providers
 │   └── database/               # Local data & seed data
-├── .env                        # API key (EXPO_PUBLIC_API_KEY)
 └── prd.md                      # Product requirements
 ```
 
@@ -57,35 +56,36 @@ AgroGuard/
 Camera/Gallery Image
        │
        ▼
-Resize to 768x768 (JPEG)
+Custom Crop Interface (user-defined)
        │
        ▼
-Base64 encode
+expo-image-manipulator (JPEG, 0.8 quality)
        │
        ▼
-Gemini 2.5 Flash API (multimodal)
+LFM2.5-VL-1.6B on-device inference
+(react-native-executorch, New Architecture)
        │
        ▼
-Structured JSON response
+Structured JSON response (vlmParser.ts)
        │
        ▼
 Disease + Crop Identification
 ```
 
-**Model**: [Gemini 2.5 Flash](https://ai.google.dev/) via the `@google/genai` SDK. Requires an API key from [Google AI Studio](https://aistudio.google.com/).
+**Model**: LFM2.5-VL-1.6B-Quantized (~500 MB) via `react-native-executorch`. Downloads automatically on first launch from HuggingFace to device storage. No API key required. Requires Android New Architecture (`newArchEnabled=true`).
 
 ## Supported Crops
 
-Apple, Blueberry, Cherry, Corn, Grape, Orange, Peach, Bell Pepper, Potato, Raspberry, Soybean, Squash, Strawberry, Tomato
+Apple, Blueberry, Cherry, Corn (Maize), Grape, Orange, Peach, Bell Pepper, Potato, Raspberry, Soybean, Squash, Strawberry, Tomato, Pumpkin
 
 ## Setup
 
 ### Prerequisites
 
 - **Node.js** >= 18
-- **Internet connection** (required for Gemini API)
 - **Android SDK** with accepted licenses (for local Android builds)
 - **Xcode** (for iOS builds, macOS only)
+- **~500 MB free device storage** (model downloads on first app launch)
 
 ### 1. Clone & Install
 
@@ -95,15 +95,9 @@ cd AgroGuard
 npm install
 ```
 
-### 2. Configure Gemini API Key
+No `.env` file or API key is needed.
 
-Get a free API key from [Google AI Studio](https://aistudio.google.com/) and create a `.env` file in the project root:
-
-```
-EXPO_PUBLIC_API_KEY=your-gemini-api-key-here
-```
-
-### 3. Generate Native Projects
+### 2. Generate Native Projects
 
 The `android/` and `ios/` folders are gitignored (generated code). Regenerate them with:
 
@@ -111,7 +105,7 @@ The `android/` and `ios/` folders are gitignored (generated code). Regenerate th
 npx expo prebuild
 ```
 
-### 4. Accept Android SDK Licenses
+### 3. Accept Android SDK Licenses
 
 If building locally for Android, make sure all SDK licenses are accepted:
 
@@ -127,18 +121,17 @@ export ANDROID_HOME=$HOME/Library/Android/sdk
 export PATH=$PATH:$ANDROID_HOME/platform-tools
 ```
 
-### 5. Run
+### 4. Run
 
 ```bash
-# Start Metro bundler
-npm start
-
 # Build & run on connected Android device
-npm run android
+npx expo run:android
 
 # Build & run on iOS simulator (macOS only)
-npm run ios
+npx expo run:ios
 ```
+
+> **First launch**: The app will download the ~500 MB LFM2.5-VL model to device storage. Use a stable Wi-Fi connection. The screen stays awake during download. Subsequent launches load the model from cache instantly.
 
 ## Build APK
 
@@ -154,6 +147,12 @@ npx expo run:android
 ```bash
 npx eas build --platform android --profile preview
 ```
+
+## Android Build Notes
+
+- `newArchEnabled=true` is required in `android/gradle.properties` (react-native-executorch requires New Architecture)
+- If you see `libjsi.so` duplicate conflict errors, the `packagingOptions.pickFirsts` in `android/app/build.gradle` handles this — do not remove it
+- If the build fails after a full clean with an ONNX AAR error, run `npx expo run:android` a second time (AAR extraction ordering quirk)
 
 ## License
 
