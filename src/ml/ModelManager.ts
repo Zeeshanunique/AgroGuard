@@ -239,8 +239,26 @@ class ModelManager {
     if (logits.length !== NUM_DISEASE_CLASSES) {
       throw new Error(`Unexpected logits length ${logits.length}, expected ${NUM_DISEASE_CLASSES}`);
     }
+
+    // Pumpkin head was trained on a different image distribution than PlantVillage.
+    // Apply a logit penalty so pumpkin only wins when the image strongly resembles
+    // pumpkin-specific features, not generic outdoor plant photos.
+    for (let i = 38; i < 43; i++) {
+      logits[i] -= ML_CONFIG.PUMPKIN_LOGIT_PENALTY;
+    }
+
     const probs = softmax(logits);
     const top = topK(probs, ML_CONFIG.TOP_K_RESULTS);
+
+    // Pumpkin requires higher confidence than PlantVillage crops since its head
+    // is more prone to false positives on out-of-distribution images.
+    const isPumpkin = top[0].index >= 38;
+    const threshold = isPumpkin ? ML_CONFIG.PUMPKIN_CONFIDENCE_THRESHOLD : ML_CONFIG.CONFIDENCE_THRESHOLD;
+    if (top[0].prob < threshold) {
+      throw new Error(
+        `Image not recognized (confidence ${Math.round(top[0].prob * 100)}%).\n\nPlease photograph a single diseased leaf up close, filling most of the frame.`
+      );
+    }
 
     const diseasePrediction = this.buildDiseasePrediction(top[0].index, top[0].prob);
     const cropPrediction = this.diseaseToCropPrediction(top[0].index, top[0].prob);

@@ -3,7 +3,9 @@ export const ML_CONFIG = {
   INPUT_SIZE: 224,
   /** HuggingFace preprocessor: resize so shortest edge = this, then center-crop to INPUT_SIZE. */
   RESIZE_SHORTEST_EDGE: 256,
-  CONFIDENCE_THRESHOLD: 0.7,
+  CONFIDENCE_THRESHOLD: 0.30,
+  PUMPKIN_CONFIDENCE_THRESHOLD: 0.40,
+  PUMPKIN_LOGIT_PENALTY: 2,
   TOP_K_RESULTS: 3,
 };
 

@@ -15,18 +15,42 @@ import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Ionicons } from '@expo/vector-icons';
+import { useLLM, LFM2_5_VL_1_6B_QUANTIZED } from 'react-native-executorch';
+import { useKeepAwake } from 'expo-keep-awake';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../../src/constants/theme';
 import { Button } from '../../src/components/ui';
-import { modelManager } from '../../src/ml';
+import { parseVLMResponse } from '../../src/ml/vlmParser';
 import { useDatabase } from '../../src/context';
 
 const DEFAULT_CROP_SIZE = 220;
 const MIN_CROP_SIZE = 120;
 const CROP_STEP = 30;
 
+const VLM_PROMPT = `You are an expert plant pathologist. Analyze this leaf image carefully.
+Reply ONLY with a JSON object, no other text:
+{"crop":"NAME","disease":"NAME","isHealthy":true/false,"severity":"LEVEL","confidence":0.0}
+Valid crops: Apple, Blueberry, Cherry, Corn (Maize), Grape, Orange, Peach, Bell Pepper, Potato, Raspberry, Soybean, Squash, Strawberry, Tomato, Pumpkin
+severity: "none" if healthy, else "low", "medium", "high", or "critical"
+If not a plant leaf: {"crop":"Unknown","disease":"Unknown","isHealthy":false,"severity":"none","confidence":0.1}`;
+
 export default function CameraScreen() {
   const router = useRouter();
   const db = useDatabase();
+  const llm = useLLM({ model: LFM2_5_VL_1_6B_QUANTIZED });
+  const [showLoadingOverlay, setShowLoadingOverlay] = useState(false);
+  useKeepAwake();
+
+  useEffect(() => {
+    if (llm.isReady) {
+      setShowLoadingOverlay(false);
+      return;
+    }
+    // Only show overlay after 1.5s — avoids flash when loading from cache
+    const timer = setTimeout(() => {
+      if (!llm.isReady) setShowLoadingOverlay(true);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [llm.isReady]);
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>('back');
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -180,6 +204,14 @@ export default function CameraScreen() {
   const cropAndAnalyze = async () => {
     if (!capturedImage) return;
 
+    if (!llm.isReady) {
+      Alert.alert(
+        'Model Loading',
+        `The AI model is still downloading (${Math.round(llm.downloadProgress * 100)}%). Please wait.`,
+      );
+      return;
+    }
+
     setIsAnalyzing(true);
     try {
       const { ox, oy, dw } = displayArea.current;
@@ -196,7 +228,11 @@ export default function CameraScreen() {
         { format: ImageManipulator.SaveFormat.JPEG, compress: 0.8 },
       );
 
-      const result = await modelManager.analyze(cropped.uri);
+      const start = Date.now();
+      const raw = await llm.sendMessage(VLM_PROMPT, { imagePath: cropped.uri });
+      const inferenceTimeMs = Date.now() - start;
+
+      const result = parseVLMResponse(raw, cropped.uri, inferenceTimeMs);
 
       if (!result.cropPrediction || !result.diseasePrediction) {
         throw new Error('No predictions returned from model');
@@ -334,6 +370,43 @@ export default function CameraScreen() {
         style={StyleSheet.absoluteFill}
         facing={facing}
       />
+
+      {/* Model download — full screen so user can't navigate away */}
+      {!llm.isReady && showLoadingOverlay && (
+        <View style={styles.downloadOverlay}>
+          <Ionicons
+            name={llm.error ? 'wifi-outline' : 'leaf-outline'}
+            size={56}
+            color={llm.error ? Colors.error ?? '#D32F2F' : Colors.primary}
+          />
+          <Text style={styles.downloadTitle}>
+            {llm.error ? 'Download Interrupted' : 'Preparing AI Model'}
+          </Text>
+          {llm.error ? (
+            <>
+              <Text style={styles.downloadSub}>
+                {'The model download was interrupted.\nRestart the app and keep the screen on until it finishes.'}
+              </Text>
+              <Text style={styles.downloadHint}>Make sure you have a stable WiFi connection.</Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.downloadSub}>
+                {llm.downloadProgress > 0
+                  ? `Downloading… ${Math.round(llm.downloadProgress * 100)}%\nKeep the app open and screen on.`
+                  : 'Loading model into memory…'}
+              </Text>
+              {llm.downloadProgress > 0 && (
+                <View style={styles.progressBarTrack}>
+                  <View style={[styles.progressBarFill, { width: `${Math.round(llm.downloadProgress * 100)}%` }]} />
+                </View>
+              )}
+              <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: Spacing.lg }} />
+              <Text style={styles.downloadHint}>This only happens once — ~500 MB</Text>
+            </>
+          )}
+        </View>
+      )}
 
       {/* Guide Frame */}
       <View style={styles.guideContainer}>
@@ -575,5 +648,45 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     flex: 1,
+  },
+  downloadOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: Colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.xl,
+    zIndex: 20,
+  },
+  downloadTitle: {
+    fontSize: FontSizes.xl,
+    fontWeight: '700',
+    color: Colors.text,
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.sm,
+  },
+  downloadSub: {
+    fontSize: FontSizes.md,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: Spacing.xl,
+  },
+  progressBarTrack: {
+    width: '100%',
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.border ?? '#E0E0E0',
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 4,
+    backgroundColor: Colors.primary,
+  },
+  downloadHint: {
+    fontSize: FontSizes.sm,
+    color: Colors.textSecondary,
+    marginTop: Spacing.xl,
+    textAlign: 'center',
   },
 });
